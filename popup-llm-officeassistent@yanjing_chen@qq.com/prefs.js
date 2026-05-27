@@ -15,17 +15,18 @@ export default class PopupLLMOfficeAssistentPreferences extends ExtensionPrefere
         // ==========================================
         // 全局唤醒控制块 (包含优化后的快捷键录制)
         // ==========================================
-        const rowEnablePopup = new Adw.SwitchRow({ title: '启用悬浮图标总开关 (Enable Popup Icon)', active: settings.get_boolean('enable-popup') });
-        const modeNames = ['自动划词弹出 (Auto Popup)', '快捷键按需唤出 (Shortcut)'];
+        const rowEnablePopup = new Adw.SwitchRow({ title: '启用悬浮图标 (Enable Popup)', active: settings.get_boolean('enable-popup') });
+        
+        // 修复：精简文案长度，防止 GNOME Adwaita 控件宽度受限导致截断
+        const modeNames = ['划词弹出 (Auto)', '快捷键唤出 (Shortcut)'];
         const modeCodes = ['auto', 'shortcut'];
-        const rowPopupMode = new Adw.ComboRow({ title: '  └─ 唤出方式 (Popup Mode)', model: Gtk.StringList.new(modeNames) });
+        const rowPopupMode = new Adw.ComboRow({ title: '  └─ 唤出方式 (Mode)', model: Gtk.StringList.new(modeNames) });
         rowPopupMode.set_selected(Math.max(0, modeCodes.indexOf(settings.get_string('popup-mode'))));
         
-        // 修复：读取数组形式的 shortcut，兼容 GNOME 的 addKeybinding 规范
         let currentShortcutArr = settings.get_strv('popup-shortcut');
         let currentShortcut = (currentShortcutArr && currentShortcutArr.length > 0) ? currentShortcutArr[0] : '';
 
-        const rowShortcut = new Adw.ActionRow({ title: '  └─ 自定义快捷键 (Shortcut Key)', subtitle: '点击右侧按钮后，直接按下新的快捷键' });
+        const rowShortcut = new Adw.ActionRow({ title: '  └─ 快捷键 (Shortcut Key)', subtitle: '点击右侧按钮后，直接按下新的快捷键' });
         const shortcutButton = new Gtk.Button({ label: currentShortcut, valign: Gtk.Align.CENTER });
         rowShortcut.add_suffix(shortcutButton);
         
@@ -49,10 +50,8 @@ export default class PopupLLMOfficeAssistentPreferences extends ExtensionPrefere
             if (!isRecording) return false;
             
             let mask = state & Gtk.accelerator_get_default_mod_mask();
-            // 忽略单纯的修饰键按下
             if (mask === 0 && keyval >= Gdk.KEY_Shift_L && keyval <= Gdk.KEY_Hyper_R) return false;
             
-            // 按 Esc 取消录制
             if (keyval === Gdk.KEY_Escape && mask === 0) {
                 isRecording = false;
                 let arr = settings.get_strv('popup-shortcut');
@@ -63,7 +62,6 @@ export default class PopupLLMOfficeAssistentPreferences extends ExtensionPrefere
             
             let shortcutString = Gtk.accelerator_name(keyval, mask);
             if (shortcutString && shortcutString.length > 0) {
-                // 修复：以数组的形式存储
                 settings.set_strv('popup-shortcut', [shortcutString]);
                 shortcutButton.set_label(shortcutString);
                 isRecording = false;
