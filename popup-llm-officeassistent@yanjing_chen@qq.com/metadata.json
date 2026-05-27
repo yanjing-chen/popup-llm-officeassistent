@@ -1,0 +1,8 @@
+{
+  "name": "Popup LLM Office Assistent",
+  "description": "Wayland native popup translator, dictionary, text polisher, and TTS using PRIMARY selection and local LLMs.",
+  "uuid": "popup-llm-officeassistent@yanjing_chen@qq.com",
+  "shell-version": ["45", "46", "47", "48", "49", "50"],
+  "settings-schema": "org.gnome.shell.extensions.popup-llm-officeassistent",
+  "url": ""
+}
