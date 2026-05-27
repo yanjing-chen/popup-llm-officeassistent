@@ -218,12 +218,21 @@ export default class PopupLLMOfficeAssistent extends Extension {
                 // 动作执行按钮 (翻译/解释/润色)
                 let actionBtn = new St.Button({ label: actionLabel, style_class: 'translator-action-btn' });
                 
-                let menuContainer = new St.BoxLayout({ vertical: true, visible: false, style_class: 'translator-dropdown-menu' });
+                // 修复：长列表截断问题，加入 ScrollView 支持滑动
+                let menuScroll = new St.ScrollView({
+                    hscrollbar_policy: St.PolicyType.NEVER,
+                    vscrollbar_policy: St.PolicyType.AUTOMATIC,
+                    visible: false,
+                    style_class: 'translator-dropdown-scroll'
+                });
                 
-                triggerBtn.connect('clicked', () => { menuContainer.visible = !menuContainer.visible; });
+                let menuContainer = new St.BoxLayout({ vertical: true, style_class: 'translator-dropdown-menu' });
+                menuScroll.set_child(menuContainer);
+                
+                triggerBtn.connect('clicked', () => { menuScroll.visible = !menuScroll.visible; });
 
                 actionBtn.connect('clicked', () => {
-                    menuContainer.visible = false;
+                    menuScroll.visible = false;
                     if (this._soupSession) this._soupSession.abort();
                     this._soupSession = new Soup.Session();
                     this._resultLabel.set_text(LOADING_TEXT);
@@ -233,7 +242,7 @@ export default class PopupLLMOfficeAssistent extends Extension {
                 codes.forEach((code, index) => {
                     let itemBtn = new St.Button({ label: names[index], style_class: 'translator-dropdown-item', x_expand: true });
                     itemBtn.connect('clicked', () => {
-                        menuContainer.visible = false;
+                        menuScroll.visible = false;
                         triggerBtn.set_label(`${titlePrefix}: ${names[index]} ▾`);
                         this._settings.set_string(settingKey, code);
                     });
@@ -244,7 +253,7 @@ export default class PopupLLMOfficeAssistent extends Extension {
                 rowBox.add_child(actionBtn);
 
                 dropdownBox.add_child(rowBox);
-                dropdownBox.add_child(menuContainer);
+                dropdownBox.add_child(menuScroll);
                 this._resultContainer.add_child(dropdownBox);
             };
 
@@ -377,9 +386,9 @@ export default class PopupLLMOfficeAssistent extends Extension {
             chosenModel = this._settings.get_string('model-name');
         }
 
-        if (!this._settings.get_boolean('enable-think')) {
-            sysPrompt += " ⚠️注意：请立刻输出纯结果，禁止输出任何包含在<think>标签内的思维链。(⚠️Note: Output pure results directly, do not generate any thinking process inside <think> tags.)";
-        }
+        // 修复：取消了强行向提示词中注入“请立刻输出纯结果”的逻辑。
+        // 这避免了干扰 hy-mt2-7b 等特定领域模型。
+        // 我们完全依靠 _parseSingleSSELine 和非流式处理中的前端正则剔除来隐藏思维链。
 
         let payload = {
             model: chosenModel, 
@@ -440,19 +449,15 @@ export default class PopupLLMOfficeAssistent extends Extension {
             close_base_stream: true
         });
 
-        // 修复：GJS 中正确的读取字符串行的方式
         const readNextLine = () => {
             if (!this._resultLabel) return; 
             dataStream.read_line_async(GLib.PRIORITY_DEFAULT, null, (stream, res) => {
                 try {
                     let line = null;
-                    
-                    // 优先尝试直接获取 utf-8 字符串
                     if (stream.read_line_finish_utf8) {
                         let [str, len] = stream.read_line_finish_utf8(res);
                         line = str;
                     } else {
-                        // 回退方案：读取字节数组后通过 TextDecoder 转换
                         let [out_array, len] = stream.read_line_finish(res);
                         if (out_array) {
                             line = typeof out_array === 'string' ? out_array : new TextDecoder().decode(out_array);
@@ -466,7 +471,6 @@ export default class PopupLLMOfficeAssistent extends Extension {
                         stream.close(null);
                     }
                 } catch (e) {
-                    // 如果流被关闭则安全退出
                 }
             });
         };
@@ -494,7 +498,6 @@ export default class PopupLLMOfficeAssistent extends Extension {
             }
             if (this._resultLabel) this._resultLabel.set_text(processedText);
         } catch (e) {
-            // 解析失败的行安全忽略，不会导致整个流崩溃
         }
     }
 
