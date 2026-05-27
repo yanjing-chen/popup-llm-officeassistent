@@ -11,36 +11,64 @@
 
 .explain-popup-icon { background-color: #26a269; color: #ffffff; border: 1px solid rgba(255, 255, 255, 0.2); border-radius: 99px; padding: 6px; box-shadow: 0 3px 8px rgba(0, 0, 0, 0.3); transition-duration: 100ms; }
 .explain-popup-icon:hover { background-color: #2ec27e; box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4); }
+.explain-popup-icon:active { background-color: #238b58; }
 
-.mail-popup-icon { background-color: #c01c28; color: #ffffff; border: 1px solid rgba(255, 255, 255, 0.2); border-radius: 99px; padding: 6px; box-shadow: 0 3px 8px rgba(0, 0, 0, 0.3); transition-duration: 100ms; }
-.mail-popup-icon:hover { background-color: #e01b24; box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4); }
+.mail-popup-icon { background-color: #cd9309; color: #ffffff; border: 1px solid rgba(255, 255, 255, 0.2); border-radius: 99px; padding: 6px; box-shadow: 0 3px 8px rgba(0, 0, 0, 0.3); transition-duration: 100ms; }
+.mail-popup-icon:hover { background-color: #e5a50a; box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4); }
+.mail-popup-icon:active { background-color: #b38008; }
 
-/* 主弹窗面板 */
-.translator-result-window.libadwaita-style { background-color: #242424; border: 1px solid rgba(255, 255, 255, 0.08); border-radius: 12px; padding: 14px; box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5); color: #e0e0e0; }
-.translator-result-text { font-size: 11pt; line-height: 1.6; color: #f6f5f4; }
-.translator-close-btn, .translator-copy-btn { background-color: transparent; border: none; padding: 4px; border-radius: 6px; transition-duration: 100ms; color: #9a9996; }
-.translator-close-btn:hover, .translator-copy-btn:hover { background-color: rgba(255, 255, 255, 0.1); color: #ffffff; }
-
-/* ======== 新增：下拉菜单式切换栏 (Dropdown) ======== */
-.translator-dropdown-trigger {
-    background-color: rgba(255, 255, 255, 0.08);
+/* ======== 弹窗主容器 ======== */
+.translator-result-window {
+    background-color: #1e1e1e;
     color: #e0e0e0;
+    border-radius: 12px;
+    padding: 12px;
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.6);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.translator-result-text {
+    font-size: 11pt;
+    line-height: 1.6;
+    color: #e0e0e0;
+}
+
+/* ======== 顶部按钮区域 ======== */
+.translator-close-btn, .translator-copy-btn {
+    background-color: rgba(255,255,255,0.1);
+    border-radius: 99px;
+    padding: 4px;
+    transition-duration: 100ms;
+}
+.translator-close-btn:hover { background-color: #e01b24; color: white; }
+.translator-copy-btn:hover { background-color: #3584e4; color: white; }
+
+/* ======== 下拉菜单与交互元素 ======== */
+.translator-dropdown-trigger {
+    background-color: rgba(255,255,255,0.05);
+    border: 1px solid rgba(255,255,255,0.15);
     border-radius: 8px;
     padding: 6px 12px;
-    font-size: 10pt;
+    font-size: 10.5pt;
     font-weight: bold;
-    border: 1px solid rgba(128,128,128,0.2);
-    transition-duration: 150ms;
+    text-align: left;
+    transition-duration: 100ms;
 }
-.translator-dropdown-trigger:hover { background-color: rgba(255, 255, 255, 0.15); color: #ffffff; }
+.translator-dropdown-trigger:hover { background-color: rgba(255,255,255,0.1); }
+.translator-dropdown-trigger:active { background-color: rgba(255,255,255,0.15); }
 
-.translator-dropdown-menu {
-    background-color: #1e1e1e;
+/* 修复：新增下拉菜单的滚动视图限制高度 */
+.translator-dropdown-scroll {
+    max-height: 220px;
+    background-color: #242424;
     border: 1px solid rgba(255,255,255,0.1);
     border-radius: 8px;
-    margin-top: 6px;
-    padding: 6px;
+    margin-top: 4px;
     box-shadow: 0 4px 12px rgba(0,0,0,0.5);
+}
+
+.translator-dropdown-menu {
+    padding: 6px;
 }
 
 .translator-dropdown-item {
@@ -53,7 +81,7 @@
 }
 .translator-dropdown-item:hover { background-color: #3584e4; color: #ffffff; }
 
-/* ======== 新增：动作执行按钮 ======== */
+/* ======== 动作执行按钮 ======== */
 .translator-action-btn {
     background-color: #3584e4;
     color: #ffffff;
@@ -73,15 +101,16 @@
     background-color: rgba(255,255,255,0.05);
     border: 1px solid rgba(128,128,128,0.3);
     border-radius: 8px;
-    padding: 4px;
+    padding: 2px;
 }
-.mail-entry-box:focus { border: 1px solid #3584e4; }
-.mail-send-btn { background-color: #3584e4; color: white; border-radius: 6px; padding: 4px 8px; margin-left: 6px; }
-.mail-send-btn:hover { background-color: #1c71d8; }
 
-@media (prefers-color-scheme: light) {
-    .translator-dropdown-trigger { background-color: rgba(0,0,0,0.06); color: #242424; }
-    .translator-dropdown-trigger:hover { background-color: rgba(0,0,0,0.12); color: #000000; }
-    .translator-dropdown-menu { background-color: #ffffff; border: 1px solid rgba(0,0,0,0.1); }
-    .translator-dropdown-item { color: #242424; }
+.mail-send-btn {
+    background-color: transparent;
+    color: #3584e4;
+    border-radius: 6px;
+    padding: 4px 8px;
+    margin-left: 4px;
+    transition-duration: 150ms;
 }
+.mail-send-btn:hover { background-color: rgba(53, 132, 228, 0.15); }
+.mail-send-btn:active { background-color: rgba(53, 132, 228, 0.3); }
