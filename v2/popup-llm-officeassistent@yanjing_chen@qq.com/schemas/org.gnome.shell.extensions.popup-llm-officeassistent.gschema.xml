@@ -1,0 +1,45 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<schemalist>
+  <schema id="org.gnome.shell.extensions.popup-llm-officeassistent" path="/org/gnome/shell/extensions/popup-llm-officeassistent/">
+    <key name="enable-popup" type="b"><default>true</default><summary>Master Popup Icon Switch</summary></key>
+    <key name="popup-mode" type="s"><default>'auto'</default><summary>Popup Mode (auto/shortcut)</summary></key>
+    
+    <key name="popup-shortcut" type="as"><default>['&lt;Super&gt;t']</default><summary>Shortcut Key</summary></key>
+
+    <key name="enable-translate" type="b"><default>true</default><summary>Enable Translation Feature</summary></key>
+    <key name="enable-explain" type="b"><default>true</default><summary>Enable Explanation Feature</summary></key>
+    <key name="enable-polish" type="b"><default>false</default><summary>Enable Text Polishing Feature</summary></key>
+    <key name="enable-mail" type="b"><default>false</default><summary>Enable Mail Assistant Feature</summary></key>
+    <key name="enable-qa" type="b"><default>true</default><summary>Enable QA Feature</summary></key>
+    <key name="enable-custom" type="b"><default>false</default><summary>Enable Custom Feature</summary></key>
+
+    <key name="api-url" type="s"><default>'http://127.0.0.1:11434/v1/chat/completions'</default><summary>API Endpoint</summary></key>
+    <key name="api-key" type="s"><default>''</default><summary>API Key</summary></key>
+
+    <key name="model-name" type="s"><default>'deepseek-r1:14b'</default><summary>Model Translation</summary></key>
+    <key name="model-name-explain" type="s"><default>'deepseek-r1:14b'</default><summary>Model Explanation</summary></key>
+    <key name="model-name-polish" type="s"><default>'deepseek-r1:14b'</default><summary>Model Polishing</summary></key>
+    <key name="model-name-mail" type="s"><default>'deepseek-r1:14b'</default><summary>Model Mail</summary></key>
+    <key name="model-name-qa" type="s"><default>'deepseek-r1:14b'</default><summary>Model QA</summary></key>
+    <key name="model-name-custom" type="s"><default>'deepseek-r1:14b'</default><summary>Model Custom</summary></key>
+
+    <key name="temperature" type="d"><default>0.3</default><summary>Temperature</summary></key>
+    <key name="enable-think" type="b"><default>true</default><summary>Enable Think</summary></key>
+    <key name="enable-stream" type="b"><default>true</default><summary>Enable Streaming</summary></key>
+
+    <key name="system-prompt" type="s"><default>'你是一个专业的翻译助手。请将以下内容翻译为目标语言，保留原始排版和专业术语。'</default><summary>Prompt Translate</summary></key>
+    <key name="system-prompt-explain" type="s"><default>'你是一个专业的语言学专家。请对以下词语、短语或句子进行详细的词典级解释，包括语境分析、词性、引申义以及相关的文化背景，如果适用请给出例句。'</default><summary>Prompt Explain</summary></key>
+    <key name="system-prompt-polish" type="s"><default>'你是一个写作专家和语言润色师。请对以下文本进行润色修饰，提升表达的流畅度、文学性和专业感，同时保持原始核心逻辑和意思。'</default><summary>Prompt Polish</summary></key>
+    <key name="system-prompt-mail" type="s"><default>'你是一个专业的商务邮件回复助手。请根据用户的指示，为以下邮件草拟一封得体、专业、逻辑清晰的回复邮件。'</default><summary>Prompt Mail</summary></key>
+    <key name="system-prompt-qa" type="s"><default>'你是一个全能的智能助理。请分析用户的提问，并给出富有逻辑、严谨、客观的高质量回答。'</default><summary>Prompt QA</summary></key>
+    <key name="system-prompt-custom" type="s"><default>'你是一个可高度自定义的任务执行器。请根据当前用户设定的专有指令来精确处理输入内容。'</default><summary>Prompt Custom</summary></key>
+
+    <key name="target-lang" type="s"><default>'zh'</default><summary>Target Language</summary></key>
+    <key name="explain-mode" type="s"><default>'general'</default><summary>Explanation Sub-Mode</summary></key>
+    <key name="polish-mode" type="s"><default>'general'</default><summary>Polishing Sub-Mode</summary></key>
+    <key name="polish-custom-style" type="s"><default>''</default><summary>Custom Polish Style Requirement</summary></key>
+
+    <key name="icon-size" type="i"><default>24</default><summary>Popup Icon Size</summary></key>
+    <key name="auto-close-time" type="i"><default>5</default><summary>Auto Close Time</summary></key>
+  </schema>
+</schemalist>
