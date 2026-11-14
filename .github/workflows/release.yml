@@ -1,0 +1,72 @@
+name: Test, package and release
+
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '24'
+          package-manager-cache: false
+      - name: Install packaging tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libglib2.0-bin
+      - name: Verify full source and regression tests
+        run: bash verify.sh
+      - name: Build precompiled copy-ready extension and complete source ZIP
+        env:
+          REF_KIND: ${{ github.ref_type }}
+          REF_NAME: ${{ github.ref_name }}
+        run: |
+          if [ "$REF_KIND" = tag ]; then
+            python3 scripts/release_tools.py build --tag "$REF_NAME"
+          else
+            python3 scripts/release_tools.py build
+          fi
+      - uses: actions/upload-artifact@v6
+        with:
+          name: popup-llm-packages
+          path: dist/*
+          if-no-files-found: error
+
+  release:
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: build
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+      actions: read
+    steps:
+      - uses: actions/download-artifact@v8
+        with:
+          name: popup-llm-packages
+          path: dist
+      - name: Publish tagged release without replacing existing assets
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          gh release create "$RELEASE_TAG" dist/*.zip dist/SHA256SUMS \
+            --verify-tag --latest \
+            --title "Popup LLM Office Assistent $RELEASE_TAG" \
+            --notes-file dist/RELEASE_NOTES.md
