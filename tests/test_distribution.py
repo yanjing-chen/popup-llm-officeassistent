@@ -21,7 +21,7 @@ class DistributionTests(unittest.TestCase):
     def test_complete_source_and_precompiled_archive(self):
         with tempfile.TemporaryDirectory(prefix='popup-package-test-') as name:
             output = Path(name)
-            copy_zip, source_zip = TOOLS.build(output, 'v2.1.4')
+            copy_zip, source_zip = TOOLS.build(output, 'v2.2.4')
             with zipfile.ZipFile(copy_zip) as archive:
                 self.assertIn(TOOLS.UUID + '/schemas/gschemas.compiled', archive.namelist())
                 self.assertIn(TOOLS.UUID + '/extension.js', archive.namelist())
@@ -175,8 +175,8 @@ os.execv(real, [real, *a])
         self.git('-C', str(seed), 'commit', '--allow-empty', '-m', 'Cleared main')
         self.git('-C', str(seed), 'push', 'origin', 'main')
         if tagged:
-            self.git('-C', str(seed), 'tag', 'v2.1.4')
-            self.git('-C', str(seed), 'push', 'origin', 'v2.1.4')
+            self.git('-C', str(seed), 'tag', 'v2.2.4')
+            self.git('-C', str(seed), 'push', 'origin', 'v2.2.4')
         return self.git('--git-dir', str(self.remote), 'rev-parse', 'main').stdout.strip()
 
     def publish(self, **extra):
@@ -192,7 +192,7 @@ os.execv(real, [real, *a])
         self.git('--git-dir', str(self.remote), 'merge-base', '--is-ancestor', original, 'main')
         self.assertEqual(self.git('--git-dir', str(self.remote), 'rev-list', '--count', 'main').stdout.strip(), '2')
         self.assertEqual(self.git('--git-dir', str(self.remote), 'rev-parse', 'main').stdout,
-                         self.git('--git-dir', str(self.remote), 'rev-parse', 'v2.1.4^{}').stdout)
+                         self.git('--git-dir', str(self.remote), 'rev-parse', 'v2.2.4^{}').stdout)
         files = self.git('--git-dir', str(self.remote), 'ls-tree', '-r', '--name-only', 'main').stdout
         self.assertIn('.github/workflows/release.yml', files)
         self.assertIn(TOOLS.UUID + '/schemas/gschemas.compiled', files)
@@ -217,7 +217,7 @@ os.execv(real, [real, *a])
         original = self.seed(tagged=True)
         result = self.publish()
         self.assertNotEqual(result.returncode, 0)
-        self.assertEqual(self.git('--git-dir', str(self.remote), 'rev-parse', 'v2.1.4').stdout.strip(), original)
+        self.assertEqual(self.git('--git-dir', str(self.remote), 'rev-parse', 'v2.2.4').stdout.strip(), original)
         self.assertEqual(self.git('--git-dir', str(self.remote), 'rev-parse', 'main').stdout.strip(), original)
 
     def test_permission_rejection_does_not_trigger_force_retry(self):

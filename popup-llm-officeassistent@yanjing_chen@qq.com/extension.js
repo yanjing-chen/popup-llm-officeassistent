@@ -12,6 +12,7 @@ import {ModelBackend} from './modelBackend.js';
 import {IdleModels} from './idleModels.js';
 import {clampPopupPosition, migrateModelIdleTime} from './backendUtils.js';
 import {ResultWindow} from './resultWindow.js';
+import {NativeScreenshot} from './nativeScreenshot.js';
 
 export default class PopupLLMOfficeAssistent extends Extension {
     enable() {
@@ -42,9 +43,12 @@ export default class PopupLLMOfficeAssistent extends Extension {
                 this._resetModelBackend();
             if (key === 'model-idle-time')
                 this._idleModels?.setSeconds(this._settings.get_int(key));
+            if (key === 'enable-ocr' && !this._settings.get_boolean(key))
+                this._cancelOCRCapture();
         });
         this._updatePopupMode();
         this._monitorsChangedId = Main.layoutManager.connect('monitors-changed', () => {
+            this._cancelOCRCapture();
             this._stopInteractions();
             for (const window of this._windows) {
                 const actor = window._resultContainer;
@@ -52,10 +56,15 @@ export default class PopupLLMOfficeAssistent extends Extension {
                     window._constrainResultWindow([actor.x + 16, actor.y + 16]);
             }
         });
-        this._overviewShowingId = Main.overview.connect('showing', () => this._stopInteractions());
+        this._overviewShowingId = Main.overview.connect('showing', () => {
+            this._cancelOCRCapture();
+            this._stopInteractions();
+        });
         this._sessionUpdatedId = Main.sessionMode.connect('updated', () => {
-            if (Main.sessionMode.isLocked)
+            if (Main.sessionMode.isLocked) {
+                this._cancelOCRCapture();
                 this._stopInteractions();
+            }
         });
         this._escEventId = global.stage.connect('key-press-event', (_actor, event) => {
             if (event.get_key_symbol() === Clutter.KEY_Escape && this._handleEscape())
@@ -64,11 +73,12 @@ export default class PopupLLMOfficeAssistent extends Extension {
         });
         // One version-only runtime marker distinguishes loaded JS modules from
         // files that were replaced on disk without starting a new Shell session.
-        log(`[PopupLLM] Loaded build=2.1.4-toolbar-on-top shell=${Config.PACKAGE_VERSION}`);
+        log(`[PopupLLM] Loaded build=2.2.4-selection-render-scale-fix shell=${Config.PACKAGE_VERSION}`);
     }
 
     disable() {
         this._generation = (this._generation || 0) + 1;
+        this._cancelOCRCapture();
         if (this._monitorsChangedId) {
             Main.layoutManager.disconnect(this._monitorsChangedId);
             this._monitorsChangedId = null;
@@ -108,6 +118,7 @@ export default class PopupLLMOfficeAssistent extends Extension {
     }
 
     _resetModelBackend() {
+        this._cancelOCRCapture();
         for (const window of this._windows || [])
             window._cancelActiveRequest();
         this._idleModels?.dispose();
@@ -219,14 +230,28 @@ export default class PopupLLMOfficeAssistent extends Extension {
     }
 
     _checkPrimarySelection(force = false, fallback = null) {
-        if (!this._settings)
+        if (!this._settings || this._ocrCapture || !this._settings.get_boolean('enable-popup'))
             return;
         const settings = this._settings;
         const generation = this._generation;
         const selectionGeneration = this._selectionGeneration;
-        St.Clipboard.get_default().get_text(St.ClipboardType.PRIMARY, (_clipboard, text) => {
+        const primarySerial = this._primarySerial;
+        // A cold/empty PRIMARY may never invoke get_text's callback. Explicit
+        // shortcuts must still expose input-independent actions such as OCR.
+        // Enrich this particular toolbar if text arrives; never reopen one
+        // already dismissed, timed out or replaced by a newer shortcut.
+        let pendingToolbar = null;
+        if (force) {
+            this._showPopupIcon('', null, true);
+            pendingToolbar = this._popupContainer;
+            if (!pendingToolbar)
+                return;
+        }
+        const onText = (_clipboard, text) => {
             if (this._settings !== settings || this._generation !== generation ||
                 this._selectionGeneration !== selectionGeneration)
+                return;
+            if (force && (this._popupContainer !== pendingToolbar || this._primarySerial !== primarySerial))
                 return;
             if (!text?.trim()) {
                 if (fallback?.text?.trim() && !fallback.window._closed &&
@@ -242,7 +267,13 @@ export default class PopupLLMOfficeAssistent extends Extension {
                 this._lastText = text;
                 this._showPopupIcon(text);
             }
-        });
+        };
+        try {
+            St.Clipboard.get_default().get_text(St.ClipboardType.PRIMARY, onText);
+        } catch (_error) {
+            if (force)
+                log('[PopupLLM] shortcut PRIMARY unavailable; empty toolbar is ready');
+        }
     }
 
     _onInternalSelection(window, text) {
@@ -257,8 +288,9 @@ export default class PopupLLMOfficeAssistent extends Extension {
             this._showPopupIcon(text, {window});
     }
 
-    _showPopupIcon(text, source = null) {
-        if (!this._settings || Main.sessionMode.isLocked || !text?.trim())
+    _showPopupIcon(text, source = null, allowEmpty = false) {
+        const hasText = !!text?.trim();
+        if (!this._settings || this._ocrCapture || Main.sessionMode.isLocked || (!hasText && !allowEmpty))
             return;
         this._closePopupIcon({resumeSelection: this._popupSource?.window !== source?.window});
         this._popupSource = source;
@@ -271,21 +303,31 @@ export default class PopupLLMOfficeAssistent extends Extension {
             ['polish', 'translator-popup-icon', 'document-edit-symbolic'],
             ['mail', 'mail-popup-icon', 'mail-unread-symbolic'],
             ['qa', 'qa-popup-icon', 'system-help-symbolic'],
+            ['ocr', 'ocr-popup-icon', 'camera-photo-symbolic'],
             ['custom', 'custom-popup-icon', 'preferences-system-symbolic'],
         ];
         let count = 0;
         for (const [action, style, icon] of actions) {
             if (!this._settings.get_boolean('enable-' + action))
                 continue;
+            const usable = hasText || action === 'ocr';
             const button = new St.Button({style_class: style, track_hover: true,
+                reactive: usable, can_focus: usable,
                 child: new St.Icon({icon_name: icon, icon_size: iconSize})});
+            if (!usable)
+                button.add_style_pseudo_class('insensitive');
             button.connect('clicked', () => {
-                if (this._popupContainer !== actor || !this._settings)
+                if (!usable || this._popupContainer !== actor || !this._settings)
                     return;
                 // Snapshot before clearing the selection or allowing streaming to resume.
                 const translateStyle = source?.window ?
                     {...source.window._translateStyleState} : {...this._translateStyleState};
                 this._closePopupIcon();
+                if (action === 'ocr') {
+                    log('[PopupLLM OCR] camera button clicked');
+                    this._startOCRCapture();
+                    return;
+                }
                 const id = GLib.idle_add(GLib.PRIORITY_DEFAULT_IDLE, () => {
                     if (this._actionIdleId !== id)
                         return GLib.SOURCE_REMOVE;
@@ -357,6 +399,72 @@ export default class PopupLLMOfficeAssistent extends Extension {
         return window;
     }
 
+    async _startOCRCapture() {
+        if (!this._settings || this._ocrCapture || Main.sessionMode.isLocked ||
+            !this._settings.get_boolean('enable-ocr'))
+            return;
+        const generation = this._generation;
+        let capture = null;
+        log('[PopupLLM OCR] native capture requested');
+        try {
+            capture = new NativeScreenshot(() => this._hideForScreenshot());
+            this._ocrCapture = capture;
+            const image = await capture.capture();
+            if (this._ocrCapture !== capture || !this._settings || this._generation !== generation)
+                return;
+            this._ocrCapture = null;
+            if (image && !Main.sessionMode.isLocked && this._settings.get_boolean('enable-ocr')) {
+                log('[PopupLLM OCR] native capture completed');
+                this._showResultWindow('', 'ocr', {ocrImage: image});
+            } else {
+                log('[PopupLLM OCR] native capture cancelled');
+            }
+        } catch (error) {
+            if ((this._ocrCapture === capture || !capture) && this._settings && this._generation === generation) {
+                log(`[PopupLLM OCR] native capture failed code=${error.ocrCode || 'SETUP_FAILED'}`);
+                Main.notify('Popup LLM：截图未完成', error.message);
+            }
+        } finally {
+            if (this._ocrCapture === capture)
+                this._ocrCapture = null;
+        }
+    }
+
+    _cancelOCRCapture() {
+        const capture = this._ocrCapture;
+        this._ocrCapture = null;
+        capture?.cancel();
+    }
+
+    _hideForScreenshot() {
+        this._closePopupIcon();
+        const hidden = [];
+        // Restore only actors which still belong to live windows. No window is
+        // destroyed/recreated and no text-selection implementation is changed.
+        const restore = () => {
+            for (const {window, actor, visible} of hidden) {
+                try {
+                    if (!window._closed && window._resultContainer === actor)
+                        actor.visible = visible;
+                } catch (_error) {}
+            }
+        };
+        try {
+            for (const window of this._windows) {
+                window._endPopupDrag();
+                const actor = window._resultContainer;
+                if (actor) {
+                    hidden.push({window, actor, visible: actor.visible});
+                    actor.visible = false;
+                }
+            }
+        } catch (error) {
+            restore();
+            throw error;
+        }
+        return restore;
+    }
+
     _topResultActor(parent) {
         const actors = new Set([...(this._windows || [])]
             .filter(window => !window._closed)
@@ -413,6 +521,8 @@ export default class PopupLLMOfficeAssistent extends Extension {
     }
 
     _handleEscape(window = this._activeWindow) {
+        if (this._ocrCapture)
+            return false; // Native screenshot UI owns Esc during this task.
         if (this._popupContainer) {
             this._closePopupIcon();
             return true;

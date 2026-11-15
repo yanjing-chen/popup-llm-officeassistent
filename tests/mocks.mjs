@@ -147,6 +147,7 @@ export function settings() {
         ['auto-close-time', 5], ['model-idle-time', 60], ['temperature', 0.3],
         ['api-url', 'http://localhost:11434/v1/chat/completions'], ['api-key', ''],
         ['target-lang', 'zh'], ['enable-stream', false], ['enable-think', true],
+        ['enable-ocr', false], ['model-name-ocr', ''], ['system-prompt-ocr', 'OCR:'],
     ]);
     for (const suffix of ['', '-explain', '-polish', '-mail', '-qa', '-custom']) {
         values.set(`model-name${suffix}`, 'old-model'); values.set(`system-prompt${suffix}`, 'prompt');

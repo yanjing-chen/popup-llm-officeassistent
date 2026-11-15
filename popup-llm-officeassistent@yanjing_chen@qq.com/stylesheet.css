@@ -27,6 +27,13 @@
 .custom-popup-icon:hover { background-color: #77767b; box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4); }
 .custom-popup-icon:active { background-color: #45444a; }
 
+.ocr-popup-icon { background-color: #e66100; color: #ffffff; border: 1px solid rgba(255,255,255,0.2); border-radius: 99px; padding: 6px; transition-duration: 100ms; }
+.ocr-popup-icon:hover { background-color: #ff7800; }
+.ocr-popup-icon:active { background-color: #c64600; }
+.translator-popup-container StButton:insensitive { opacity: 0.35; }
+.ocr-preview { padding: 6px; margin-bottom: 8px; border: 1px solid rgba(255,255,255,0.1); border-radius: 8px; }
+.ocr-recognize-btn { margin-top: 8px; margin-left: 0; }
+
 /* ======== 弹窗主容器 ======== */
 .translator-result-window {
     background-color: #1e1e1e;

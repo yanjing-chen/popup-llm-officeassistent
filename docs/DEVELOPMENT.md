@@ -1,6 +1,17 @@
 # 开发与发布
 
-运行环境源码保持 2.1.4 的交互实现；本次整理只添加仓库文档、完整性检查、打包和发布流程。
+2.2.4 补齐中文/多字节坐标命中的文字资源缩放：先将 Actor 逻辑坐标乘当前 resource scale，
+再减渲染空间的 layout offset，最后换算为 Pango 单位；不能把 Actor 变换、资源缩放和 Pango.SCALE 混为一谈。
+保留用户已确认的 2.2.3 行尾 trailing/自动换行修正，西文 ASCII 沿用原来的命中路径。
+鼠标 motion 和帧时钟代码不改；已有回归模型只覆盖了 Actor 变换，现补独立资源缩放及真实缩放排版测试。
+用户已确认 2.2.2 的 OCR 识别成功；原生截图、OCR 请求/解码、缩略图模块保持逐字节不变。
+仅 _outputPositionAt 需要改变，其余选区方法、顶部复制动作、
+textSelection.js 和 frameLoop.js 继续按稳定基线做 SHA-256 回归锁定。
+新增真实 Pango → 生产 JavaScript 命中方法的可选测试；无显示器/无 GNOME Shell 也可执行，
+但不能代替用户在 GNOME 51 的真实鼠标操作验收。
+每窗口/比例变化仅记录一次数值型 resource-scale，不输出选中文本或逐帧日志，便于只读诊断。
+新增源码、测试与界面要求见 [OCR.md](OCR.md)。这里没有 GNOME Shell/本机模型实机验收结果；
+应在 GNOME 51 完成验收后再运行正式发布命令。
 维护者本地发布脚本只面向 `yanjing-chen/popup-llm-officeassistent`，提交作者为
 Yanjing Chen / yanjing_chen@qq.com，只写本次新克隆仓库的本地 Git 配置。
 
@@ -16,7 +27,7 @@ glib-compile-schemas --strict 'popup-llm-officeassistent@yanjing_chen@qq.com/sch
 # 源码有变动后更新清单，再测试和构建
 python3 scripts/release_tools.py checksums
 bash verify.sh
-python3 scripts/release_tools.py build --tag v2.1.4
+python3 scripts/release_tools.py build --tag v2.2.4
 ```
 
 dist 中产生免编译插件 ZIP、完整源码 ZIP、SHA256SUMS 和 Release 说明。
@@ -43,7 +54,7 @@ GitHub Actions 发布完成之前，不应把本地“推送成功”当成 Rele
 
 ```bash
 gh run list --repo yanjing-chen/popup-llm-officeassistent --limit 5
-gh release view v2.1.4 --repo yanjing-chen/popup-llm-officeassistent
+gh release view v2.2.4 --repo yanjing-chen/popup-llm-officeassistent
 ```
 
 如果认证缺少 workflow 权限或 main 受保护，请停下核对授权/仓库规则；不要用强推绕过限制。

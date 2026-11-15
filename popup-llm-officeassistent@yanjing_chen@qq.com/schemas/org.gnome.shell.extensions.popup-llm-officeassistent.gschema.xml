@@ -11,6 +11,7 @@
     <key name="enable-polish" type="b"><default>false</default><summary>Enable Text Polishing Feature</summary></key>
     <key name="enable-mail" type="b"><default>false</default><summary>Enable Mail Assistant Feature</summary></key>
     <key name="enable-qa" type="b"><default>true</default><summary>Enable QA Feature</summary></key>
+    <key name="enable-ocr" type="b"><default>true</default><summary>Enable native screenshot OCR</summary></key>
     <key name="enable-custom" type="b"><default>false</default><summary>Enable Custom Feature</summary></key>
 
     <key name="api-url" type="s"><default>'http://127.0.0.1:11434/v1/chat/completions'</default><summary>API Endpoint</summary></key>
@@ -21,6 +22,7 @@
     <key name="model-name-polish" type="s"><default>''</default><summary>Model Polishing</summary></key>
     <key name="model-name-mail" type="s"><default>''</default><summary>Model Mail</summary></key>
     <key name="model-name-qa" type="s"><default>''</default><summary>Model QA</summary></key>
+    <key name="model-name-ocr" type="s"><default>''</default><summary>Actual OCR model explicitly selected by the user</summary></key>
     <key name="model-name-custom" type="s"><default>''</default><summary>Model Custom</summary></key>
 
     <key name="temperature" type="d"><default>0.3</default><summary>Temperature</summary></key>
@@ -32,6 +34,7 @@
     <key name="system-prompt-polish" type="s"><default>'你是一个写作专家和语言润色师。请对以下文本进行润色修饰，提升表达的流畅度、文学性和专业感，同时保持原始核心逻辑和意思。'</default><summary>Prompt Polish</summary></key>
     <key name="system-prompt-mail" type="s"><default>'你是一个专业的商务邮件回复助手。请根据用户的指示，为以下邮件草拟一封得体、专业、逻辑清晰的回复邮件。'</default><summary>Prompt Mail</summary></key>
     <key name="system-prompt-qa" type="s"><default>'你是一个全能的智能助理。请分析用户的提问，并给出富有逻辑、严谨、客观的高质量回答。'</default><summary>Prompt QA</summary></key>
+    <key name="system-prompt-ocr" type="s"><default>'OCR:'</default><summary>Official PaddleOCR-VL text-recognition prompt</summary></key>
     <key name="system-prompt-custom" type="s"><default>'你是一个可高度自定义的任务执行器。请根据当前用户设定的专有指令来精确处理输入内容。'</default><summary>Prompt Custom</summary></key>
 
     <key name="target-lang" type="s"><default>'zh'</default><summary>Target Language</summary></key>

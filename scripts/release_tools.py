@@ -18,7 +18,7 @@ UUID = 'popup-llm-officeassistent@yanjing_chen@qq.com'
 SCHEMA = 'org.gnome.shell.extensions.popup-llm-officeassistent'
 COPY_ASSET = 'popup-llm-officeassistent-precompiled.zip'
 ROOT_FILES = ('.gitignore', '.gitattributes', 'README.md', 'RELEASE_NOTES.md',
-              'install.sh', 'verify.sh', 'diagnose-selection.sh')
+              'install.sh', 'verify.sh', 'diagnose-selection.sh', 'diagnose-ocr.sh')
 SOURCE_DIRS = (UUID, 'tests', 'scripts', 'docs', '.github/workflows')
 
 
@@ -117,6 +117,7 @@ def build(output_dir: Path, tag: str | None = None) -> list[Path]:
                        env={**os.environ, 'GSETTINGS_BACKEND': 'memory'}, check=True,
                        stdout=subprocess.DEVNULL)
         shutil.copy2(ROOT / 'install.sh', staging / 'install.sh')
+        shutil.copy2(ROOT / 'diagnose-ocr.sh', staging / 'diagnose-ocr.sh')
         shutil.copy2(ROOT / 'docs/INSTALL.md', staging / 'README.md')
         runtime_files = {path.relative_to(staging).as_posix(): path
                          for path in staging.rglob('*') if path.is_file()}

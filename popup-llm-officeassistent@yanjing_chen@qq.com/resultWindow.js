@@ -8,9 +8,12 @@ import Gio from 'gi://Gio';
 import Mtk from 'gi://Mtk';
 import * as Main from 'resource:///org/gnome/shell/ui/main.js';
 import * as Config from 'resource:///org/gnome/shell/misc/config.js';
-import {clampPopupPosition, popupDragDamage, modelIdleSeconds} from './backendUtils.js';
+import {clampPopupPosition, popupDragDamage, modelIdleSeconds, isOllamaCatalog, parseModelList} from './backendUtils.js';
 import {FrameLoop} from './frameLoop.js';
 import {makeTextMap, characterAtByte, selectionRange} from './textSelection.js';
+import {OcrClient} from './ocrClient.js';
+import {OcrPreview} from './ocrPreview.js';
+import {localOllamaEndpoint, requireOcrModel, pngInfo} from './ocrUtils.js';
 
 const LOADING_TEXT = '正在连接大模型... (Connecting to LLM...)';
 const PRIMARY_BUTTON_MASK = Clutter.ModifierType?.BUTTON1_MASK ?? (1 << 8);
@@ -18,7 +21,7 @@ const CONTROL_MASK = Clutter.ModifierType?.CONTROL_MASK ?? (1 << 2);
 const SHIFT_MASK = Clutter.ModifierType?.SHIFT_MASK ?? 1;
 
 export class ResultWindow {
-    constructor(owner, {translateStyle = null} = {}) {
+    constructor(owner, {translateStyle = null, ocrImage = null} = {}) {
         this._owner = owner;
         this._settings = owner._settings;
         this._soupSession = new Soup.Session();
@@ -35,6 +38,7 @@ export class ResultWindow {
         this._copyButtons = new Set();
         this._outputLabels = new Set();
         this._translateStyleState = {...(translateStyle || owner._translateStyleState)};
+        this._ocrImage = ocrImage;
     }
 
     get _idleModels() { return this._owner?._idleModels; }
@@ -383,6 +387,7 @@ export class ResultWindow {
             else if (actionType === 'mail') titleText = 'LLM 邮件助手 (Mail Assistant)';
             else if (actionType === 'qa') titleText = 'LLM 智能问答 (Q&A)';
             else if (actionType === 'custom') titleText = 'LLM 自定义功能 (Custom)';
+            else if (actionType === 'ocr') titleText = 'LLM 文字识别 (OCR)';
 
             const dragHandle = this._box({orientation: Clutter.Orientation.HORIZONTAL,
                 style_class: 'translator-drag-handle', x_expand: true, reactive: true, track_hover: true});
@@ -430,6 +435,21 @@ export class ResultWindow {
             }
             headerBox.add_child(closeButton);
             this._resultContainer.add_child(headerBox);
+
+            if (actionType === 'ocr') {
+                if (!this._ocrImage)
+                    throw new Error('OCR requires a completed native screenshot');
+                pngInfo(this._ocrImage.png);
+                const [px, py] = global.get_pointer();
+                const area = this._monitorAt(px, py);
+                const preview = this._box({orientation: Clutter.Orientation.VERTICAL,
+                    style_class: 'ocr-preview', x_expand: true});
+                this._ocrPreview = new OcrPreview(this._ocrImage.png,
+                    Math.max(1, Math.min(480, area.width - 80)),
+                    Math.max(1, Math.min(220, Math.floor(area.height * 0.24))));
+                preview.add_child(this._ocrPreview.actor);
+                this._resultContainer.add_child(preview);
+            }
 
             // ======= 动态区域划分 =======
             let dropdownBox = this._box({ orientation: Clutter.Orientation.VERTICAL, style: 'margin-bottom: 8px;' });
@@ -663,6 +683,13 @@ export class ResultWindow {
                 bottomBar.add_child(copyBtnBottom);
                 this._resultContainer.add_child(bottomBar);
             }
+            if (actionType === 'ocr') {
+                this._ocrRunButton = new St.Button({label: '识别',
+                    style_class: 'translator-action-btn ocr-recognize-btn',
+                    x_align: Clutter.ActorAlign.END});
+                this._ocrRunButton.connect('clicked', () => this._runOCR());
+                this._resultContainer.add_child(this._ocrRunButton);
+            }
 
             // ======= 智能定位防溢出 =======
             const [x, y] = global.get_pointer();
@@ -693,6 +720,8 @@ export class ResultWindow {
                 this._setResultText('✨ 请确认润色风格，然后点击右上方“润色”按钮开始执行。');
             } else if (actionType === 'custom') {
                 this._setResultText('✨ 请点击右上方“执行”按钮开始运行您的自定义系统提示词功能。');
+            } else if (actionType === 'ocr') {
+                this._setResultText('');
             }
             return true;
         } catch (err) {
@@ -886,6 +915,81 @@ export class ResultWindow {
             if (this._requestIsCurrent(request) && this._resultLabel)
                 this._setResultText('无法发送请求，请检查 API 地址和后端连接。');
             this._finishRequest(request);
+        }
+    }
+
+    async _runOCR() {
+        if (this._closed || !this._ocrImage || this._activeRequest || !this._settings)
+            return;
+        const request = {model: '', memory: null, container: this._resultContainer,
+            cancellable: new Gio.Cancellable(), finished: false, cancelled: false};
+        this._activeRequest = request;
+        this._ocrRunButton.reactive = false;
+        this._ocrRunButton.can_focus = false;
+        this._ocrRunButton.add_style_pseudo_class('insensitive');
+        this._ocrRunButton.set_label('正在识别……');
+        let client = null;
+        let phase = 'model-discovery';
+        try {
+            if (!this._settings.get_boolean('enable-ocr'))
+                throw new Error('OCR 功能已关闭。');
+            const endpoint = this._settings.get_string('api-url');
+            localOllamaEndpoint(endpoint); // Reject remote screenshots before even probing.
+            const info = await this._modelBackend?.discover();
+            if (!this._requestIsCurrent(request))
+                return;
+            if (info?.kind !== 'ollama')
+                throw new Error('未识别到本机 Ollama，未发送截图。请检查前部接口设置。');
+            // Do not use a cached catalog if a model was installed/removed
+            // while Shell remained running.
+            phase = 'model-catalog';
+            const catalog = await this._modelBackend.request(this._modelBackend.urls.ollamaTags);
+            if (!this._requestIsCurrent(request))
+                return;
+            if (!isOllamaCatalog(catalog))
+                throw new Error('Ollama 模型列表无效，未发送截图。');
+            request.model = requireOcrModel(parseModelList(catalog), this._settings.get_string('model-name-ocr'));
+            request.memory = this._idleModels;
+            phase = 'model-lease';
+            await request.memory?.begin(request.model);
+            if (!this._requestIsCurrent(request))
+                return;
+            client = new OcrClient(endpoint, this._settings.get_string('api-key'));
+            this._setResultText('');
+            phase = 'recognize';
+            const result = await client.recognize({
+                model: request.model, png: this._ocrImage.png,
+                prompt: this._settings.get_string('system-prompt-ocr'),
+                streaming: this._settings.get_boolean('enable-stream'),
+                idleSeconds: modelIdleSeconds(this._settings.get_int('model-idle-time')),
+                cancellable: request.cancellable,
+                onText: text => {
+                    if (this._requestIsCurrent(request)) {
+                        this._setResultText(text);
+                        this._scrollToBottom();
+                    }
+                },
+            });
+            if (this._requestIsCurrent(request))
+                this._setResultText(result || '未识别到文字。');
+        } catch (error) {
+            if (this._requestIsCurrent(request)) {
+                const code = error.ocrCode || phase.replace(/-/g, '_').toUpperCase() + '_FAILED';
+                log(`[PopupLLM OCR] recognize failed phase=${phase} code=${code}`);
+                this._setResultText(error.message?.startsWith('OCR') || error.message?.includes('模型') ||
+                    error.message?.includes('Ollama') || error.message?.includes('提示词') ?
+                    error.message : `OCR 插件处理未完成 [${code}]，请提供 OCR 诊断日志。`);
+            }
+        } finally {
+            client?.dispose();
+            const current = this._activeRequest === request;
+            this._finishRequest(request);
+            if (!this._closed && this._ocrRunButton && (current || !this._activeRequest)) {
+                this._ocrRunButton.set_label('识别');
+                this._ocrRunButton.reactive = true;
+                this._ocrRunButton.can_focus = true;
+                this._ocrRunButton.remove_style_pseudo_class('insensitive');
+            }
         }
     }
 
@@ -1131,6 +1235,49 @@ export class ResultWindow {
             return 0;
         if (actor.height > 0 && y > actor.height)
             return state.map.characters.length;
+        if (state.map.bytes.at(-1) !== state.map.characters.length) {
+            // Pango reports a UTF-8 byte index AND a trailing character count.
+            // Rounding a compact hit down to a byte boundary loses a Chinese
+            // glyph's trailing edge. Preserve both, including clamped hits in
+            // the blank area after a line (where inside is deliberately false).
+            try {
+                const layout = actor.get_layout();
+                const [offsetX, offsetY] = actor.get_layout_offsets();
+                // Actor-local pointer coordinates are logical pixels; the
+                // backing Pango layout and its offsets use render pixels.
+                // This is independent of the actor transform already undone
+                // above. Read the scale each hit so moving between monitors
+                // cannot leave a cached 1x/2x conversion behind.
+                const resourceScale = actor.get_resource_scale?.() ?? 1;
+                if (Number.isFinite(offsetX) && Number.isFinite(offsetY) &&
+                    Number.isFinite(resourceScale) && resourceScale > 0) {
+                    if (this._selectionResourceScale !== resourceScale) {
+                        this._selectionResourceScale = resourceScale;
+                        // One metadata-only marker per window/scale change,
+                        // never the selected text or per-motion logging.
+                        log(`[PopupLLM] selection resource-scale=${resourceScale}`);
+                    }
+                    const layoutX = Math.round((x * resourceScale - offsetX) * Pango.SCALE);
+                    const layoutY = Math.round((y * resourceScale - offsetY) * Pango.SCALE);
+                    let [inside, index, trailing] = layout.xy_to_index(layoutX, layoutY);
+                    if (!inside && trailing === 0 && Number.isInteger(index) &&
+                        index >= 0 && index < state.map.bytes.at(-1)) {
+                        // Soft-wrapped lines can suppress their last trailing
+                        // edge. Step one native grapheme only when the pointer
+                        // is past that edge on the SAME visual line; never
+                        // blindly add one character or move into the next line.
+                        const rect = layout.index_to_pos(index);
+                        const pastEdge = rect.width > 0 ? layoutX >= rect.x + rect.width :
+                            rect.width < 0 && layoutX <= rect.x + rect.width;
+                        if (pastEdge && layoutY >= rect.y && layoutY < rect.y + rect.height)
+                            [index, trailing] = layout.move_cursor_visually(true, index, 0, rect.width > 0 ? 1 : -1);
+                    }
+                    if (Number.isInteger(index) && index >= 0 && index <= state.map.bytes.at(-1) &&
+                        Number.isInteger(trailing) && trailing >= 0 && trailing <= state.map.characters.length)
+                        return Math.min(state.map.characters.length, characterAtByte(state.map, index) + trailing);
+                }
+            } catch (_error) { /* Preserve the legacy hit path if the layout API is unavailable. */ }
+        }
         const position = actor.coords_to_position(x, y);
         if (!Number.isFinite(position))
             return null;
@@ -1324,6 +1471,10 @@ export class ResultWindow {
         this._resultContainer = null;
         this._resultWindow = null;
         this._resultLabel = null;
+        this._ocrImage = null;
+        this._ocrPreview?.dispose();
+        this._ocrPreview = null;
+        this._ocrRunButton = null;
         if (actor && !actorDestroyed) {
             Main.layoutManager.removeChrome(actor);
             actor.destroy();

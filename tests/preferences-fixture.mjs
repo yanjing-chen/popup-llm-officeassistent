@@ -38,7 +38,13 @@ export function prefsFixture({kind = 'ollama', values = {}, result} = {}) {
         runTimers: () => {for (const [id, callback] of [...timers]) {timers.delete(id); callback();}},
         byTitle: title => Widget.all.find(w => w.title === title),
         refresh: () => Widget.all.find(w => w.tooltip_text === '重新获取模型列表').emit('clicked'),
-        models: () => Widget.all.filter(w => w.title === '模型名称 (Model)'),
+        // Keep original six-tool regression helpers scoped to those six;
+        // allModels/ocrModel explicitly cover the new independent seventh row.
+        models: () => Widget.all.filter(w => w.title === '模型名称 (Model)' &&
+            w.get_parent()?.title !== '启用“文字识别” (Enable OCR)'),
+        allModels: () => Widget.all.filter(w => w.title === '模型名称 (Model)'),
+        ocrModel: () => Widget.all.find(w => w.title === '模型名称 (Model)' &&
+            w.get_parent()?.title === '启用“文字识别” (Enable OCR)'),
         idle: () => Widget.all.find(w => w.title === '模型退出显存的时间 (Model Idle Timeout)'),
         apply: () => Widget.all.find(w => w.label === '应用到 Runtime'),
     };

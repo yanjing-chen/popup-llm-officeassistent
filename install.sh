@@ -28,7 +28,7 @@ for command_name in cp mv mkdir mktemp sha256sum gsettings; do
         exit 1
     fi
 done
-for source_name in metadata.json prefs.js extension.js resultWindow.js textSelection.js frameLoop.js backendUtils.js modelBackend.js idleModels.js stylesheet.css; do
+for source_name in metadata.json prefs.js extension.js resultWindow.js textSelection.js frameLoop.js backendUtils.js modelBackend.js idleModels.js nativeScreenshot.js ocrClient.js ocrPreview.js ocrUtils.js diagnose-ocr.sh stylesheet.css; do
     if [ ! -f "$SOURCE_DIR/$source_name" ]; then
         echo "源码不完整，缺少：$source_name" >&2
         exit 1
@@ -55,6 +55,10 @@ else
 fi
 GSETTINGS_BACKEND=memory gsettings --schemadir "$STAGE_DIR/$EXT_UUID/schemas" \
     range org.gnome.shell.extensions.popup-llm-officeassistent model-idle-time >/dev/null
+GSETTINGS_BACKEND=memory gsettings --schemadir "$STAGE_DIR/$EXT_UUID/schemas" \
+    range org.gnome.shell.extensions.popup-llm-officeassistent enable-ocr >/dev/null
+GSETTINGS_BACKEND=memory gsettings --schemadir "$STAGE_DIR/$EXT_UUID/schemas" \
+    range org.gnome.shell.extensions.popup-llm-officeassistent system-prompt-ocr >/dev/null
 
 HAD_OLD=0
 INSTALLED_NEW=0
@@ -112,7 +116,7 @@ grep -Fq '_raisePopupIcon' "$TARGET_DIR/extension.js"
 trap - ERR
 rmdir -- "$STAGE_DIR" 2>/dev/null || true
 
-echo '已安装 Popup LLM Office Assistent 2.1.4（功能按钮保持在结果窗口上方）。'
+echo '已安装 Popup LLM Office Assistent 2.2.4（文字选区渲染缩放修正，保留中文末字与 OCR）。'
 echo "安装路径：$TARGET_DIR"
 if [ "$RECOMPILE_SCHEMAS" -eq 0 ]; then echo '已使用包内预编译 schema，本次未执行编译。'; fi
 if [ "$HAD_OLD" -eq 1 ]; then

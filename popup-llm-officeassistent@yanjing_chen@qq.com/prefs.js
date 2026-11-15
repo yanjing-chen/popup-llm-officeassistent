@@ -175,7 +175,7 @@ export default class PopupLLMOfficeAssistentPreferences extends ExtensionPrefere
         rowModels.add_suffix(refreshButton);
         groupConnection.add(rowModels);
 
-        // 六项功能分别选择实际模型；保留原有设置键和提示词。
+        // 七项功能分别选择实际模型；保留原有设置键和提示词。
         const groupFeatures = new Adw.PreferencesGroup({
             title: '功能与模型 (Features & Models)',
             description: '使用右侧开关启用功能；展开项目可分别设置模型名称和系统提示词。',
@@ -291,6 +291,15 @@ export default class PopupLLMOfficeAssistentPreferences extends ExtensionPrefere
             modelKey: 'model-name-qa',
             promptKey: 'system-prompt-qa',
         });
+        createFeatureRow({
+            settingKey: 'enable-ocr',
+            title: '启用“文字识别” (Enable OCR)',
+            subtitle: '原生截图后识别；请选择支持图片输入的 OCR 模型',
+            iconName: 'camera-photo-symbolic',
+            modelKey: 'model-name-ocr',
+            promptKey: 'system-prompt-ocr',
+        });
+
         createFeatureRow({
             settingKey: 'enable-custom',
             title: '启用“自定义功能” (Enable Custom Tool)',
@@ -461,7 +470,7 @@ export default class PopupLLMOfficeAssistentPreferences extends ExtensionPrefere
                 updateRuntimeButton();
                 modelRows.forEach(update => update());
                 rowModels.set_subtitle(result.models.length > 0 ?
-                    `已识别 ${result.models.length} 个可选模型；六项功能可分别选择。` :
+                    `已识别 ${result.models.length} 个可选模型；七项功能可分别选择。` :
                     '尚未安装模型，请先在后端安装模型，然后点击刷新。');
                 rowMemoryStatus.set_subtitle(result.kind === 'runtime' ? result.memoryStatus :
                     `${result.memoryStatus} 只卸载本插件使用的模型，不删除模型文件；共享后端的其他应用可能受影响。`);

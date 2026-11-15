@@ -24,6 +24,7 @@ if command -v journalctl >/dev/null 2>&1; then
     journalctl --user -b --no-pager -o cat \
         --grep='PopupLLM|resultWindow\.js|textSelection\.js|clutter_event_get_source' 2>/dev/null | tail -n 80
 fi
-echo '2.1.4 的运行标志应为：Loaded build=2.1.4-toolbar-on-top'
+echo '2.2.4 的运行标志应为：Loaded build=2.2.4-selection-render-scale-fix'
+echo '文字选区还会记录 selection resource-scale=数值（每窗口/比例变化一次，不包含文字）。'
 echo '只有磁盘版本、没有运行标志时，尚不能证明当前 Shell 已加载新模块。'
 echo '检查结束。未修改设置、文件、驱动或剪贴板。'

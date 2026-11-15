@@ -1,14 +1,21 @@
 # Popup LLM Office Assistent
 
-GNOME Shell 45–51 / Wayland 原生划词大模型助手。连接自己的 Ollama 或 OpenAI Chat Completions 兼容后端，在桌面直接翻译、解释、润色、起草邮件、连续问答和执行自定义提示词。
+GNOME Shell / Wayland 原生划词大模型助手。保留 GNOME 45–51 的六项文字功能，并新增面向 GNOME 49–51 的原生截图 OCR，当前重点验收 GNOME 51。连接自己的 Ollama 或 OpenAI Chat Completions 兼容后端。
 
 仓库：[yanjing-chen/popup-llm-officeassistent](https://github.com/yanjing-chen/popup-llm-officeassistent) · [下载 Release](https://github.com/yanjing-chen/popup-llm-officeassistent/releases/latest) · [构建记录](https://github.com/yanjing-chen/popup-llm-officeassistent/actions)
+
+2.2.4 补齐文字渲染缩放换算，修正中文拖选时鼠标到第四行、选区仍落在第二行的偏差。
+保留 2.2.3 已获用户确认的中文末字修正，翻译和 OCR 等结果窗统一生效；西文 ASCII 路径不变。
+不更改系统缩放设置或提高轮询频率。截图、OCR 识别和等比例预览仍沿用用户已确认成功的 2.2.2。
 
 ## 功能
 
 - 翻译、解释、润色、邮件、智能问答、自定义六项功能；分别选择实际模型及系统提示词。
+- 新增截图 OCR：浮动按钮位于智能问答之后、自定义之前；点击后直接进入 GNOME 原生截图，截图完成后才弹出预览窗口。
+- OCR 弹窗顶部复制、上方缩略图、下方识别文本、底部“识别”；没有语言选择、额外操作栏或耗时显示。
 - 模型菜单自动读取配置后端的实际列表；没有模型显示“尚未安装模型”，不填充示例名称。
-- 划词自动呼出或使用自定义快捷键；功能按钮位于本插件全部结果窗上方。
+- 划词自动呼出或使用自定义快捷键；首次登录后无选中文字也能按快捷键唤出，直接用相机截图。没有文本时文字功能暂不可点。
+- 功能按钮位于本插件全部结果窗上方。
 - 结果窗口可拖动，多轮结果独立保留；正文选区、按需复制及选中片段二次处理。
 - 流式输出、连续问答、翻译目标语言/风格、解释类别和润色风格。
 - 支持已确认协议的后端空闲卸载，0–86400 秒，默认 60 秒；不删除模型文件。
@@ -16,6 +23,7 @@ GNOME Shell 45–51 / Wayland 原生划词大模型助手。连接自己的 Olla
 ## 安装要求
 
 - GNOME Shell **45–51**，Wayland 会话。请用 `gnome-shell --version` 确认版本。
+- 新增原生截图 OCR 使用 GNOME **49–51** 的截图事件顺序，当前候选版需在 GNOME 51 实机验收；45–48 的原有六项功能保留，不宣称新 OCR 已在旧版本验证。
 - 系统的 GNOME 扩展、GSettings、GTK4/libadwaita 环境；Ubuntu GNOME 通常已具备。
 - 自行准备可访问的模型后端和实际模型。扩展不附带模型，不自动下载模型或启动后端。
 - **安装和运行不需要 Node.js、Python、编译器，也不需要执行 glib-compile-schemas。**
@@ -98,6 +106,33 @@ bash install.sh
 4. 按住结果窗标题拖动。可以保留多个结果窗口，选取正文中的一部分后继续处理。
 5. `Ctrl+C` 或复制按钮优先复制选区；没有选区时复制按钮复制完整结果。选区工具条隐藏后可右击选区再次呼出。
 
+## 截图 OCR（2.2.2）
+
+1. 可以复用 SnapMark 已有的本机 Ollama 和 PaddleOCR-VL；不需要运行 SnapMark，也不需要安装 Tesseract、语言包、Python Paddle 环境或 Local AI Runtime。
+2. 使用前部已有的本机接口，例如 `http://127.0.0.1:11434/v1/chat/completions`，刷新模型列表。展开“文字识别”，像其他功能一样选择实际模型；不再在连接组放单独的条件式选择器。
+3. “启用文字识别”位于“启用自定义功能”之前，包含启用开关、模型选择和系统提示词。提示词默认官方文本任务 `OCR:`，不指定语言、不追加翻译、问答或思维链指令。
+4. 划词或按自定义快捷键呼出浮动工具条，点击橙色相机 OCR 按钮。无选区、首次登录后也能直接按快捷键，不必先滑词；此时文字功能暂不可点，相机可用。原生截图先打开，不先创建插件弹窗；顶栏菜单不增加 OCR 入口。
+5. 截图完成且原生界面退出后才打开 OCR 弹窗。上方显示等比例缩略图，下方是识别文本，顶部复制/关闭按钮与原有弹窗一致，底部“识别”才会发送原始 PNG 给本机 Ollama。
+6. 识别结果复用现有稳定的选区、复制及二次处理接口。选中一段后可以继续润色/翻译，不重写选区逻辑。流式开关与模型空闲时间复用现有设置，OCR 温度固定 0。
+
+截图取消不会创建空窗口，也不会读取之前的剪贴板图片。截图前暂时隐藏本插件结果窗，结束后恢复；只处理由 OCR 按钮发起的这一轮，不监听普通截图或截图目录。
+GNOME 自己的截图保存和剪贴板行为不改变，插件不会删除系统保存的截图。
+原图只保留在当前 OCR 窗口的内存中供重试，关闭窗口后释放；不写 OCR 图片历史，不记录图片内容到日志。
+OCR 严格限定本机 HTTP 回环 Ollama，不沿用在线文本接口上传截图，不跟随重定向、不自动回退云服务。
+OCR 菜单与其他功能一样只显示当前后端的实际列表，不按 PaddleOCR-VL 名称过滤。以后安装新模型后刷新即可选择；所选模型需要支持图片输入，提示词可按其要求调整。未选择、模型被删除时明确提示，不自动切换。
+
+2.2.1 的 GNOME 51 原生截图到预览链路已获用户确认，本版保留该截图入口。
+2.2.2 修正 OCR 响应解码：不依赖 TextDecoder 的 stream 选项，按完整字节行处理 NDJSON，
+中文/emoji 跨网络分块不乱码；流式与非流式均覆盖。旧版会把这类插件异常误显示为连接问题。
+预览改为异步解码到独立图像内容，保留原始宽高比，不再用固定方形图标；请求仍发完整原图。
+识别失败区分 HTTP、连接、读数据、解码、协议和插件处理阶段，不再一律归咎于 Ollama。
+用户已确认 2.2.2 的真实 OCR 识别成功。2.2.3 不改截图入口、OCR 请求/解码或缩略图模块，
+仅修正中文字节索引与字形前后边界的命中换算；中西混排、自动换行、反向拖选均有回归测试。
+用户已确认末字问题解决。2.2.4 进一步区分文字 Actor 的逻辑像素、渲染资源比例和 Pango 排版像素，
+读取当前文字 Actor 的 resource scale 后再换算坐标；已有鼠标事件/绘帧更新保持，不把行数偏差当作轮询太慢。
+
+详细实现边界、验收和诊断见 [docs/OCR.md](docs/OCR.md)。
+
 列表为空显示“尚未安装模型”；连接失败显示“无法获取模型列表”，不会显示过期或示例模型。
 成功确认保存的模型已不存在时清空该选择，需重新选择；不会自动改用其他模型。
 
@@ -109,7 +144,7 @@ bash install.sh
 ## Release 与开发
 
 - 推送 main / 提交 PR：运行回归检查并生成 Actions 构建产物。
-- 推送 `v2.1.4` 这类版本标签：检查成功后自动创建 GitHub Release，附免编译插件 ZIP、完整统一源码 ZIP、SHA256SUMS。
+- 推送 `v2.2.4` 这类版本标签：检查成功后自动创建 GitHub Release，附免编译插件 ZIP、完整统一源码 ZIP、SHA256SUMS。
 - 标签版本必须与 metadata.json 的 version-name 前缀一致；现有 Release/标签不会被脚本强行覆盖。
 - 构建工具只用于开发者，用户下载安装包无需参与构建。
 
@@ -125,10 +160,19 @@ gnome-extensions info 'popup-llm-officeassistent@yanjing_chen@qq.com'
 
 完整源码包内可运行 `bash diagnose-selection.sh`，查看版本、状态与相关日志。请勿在问题报告中粘贴 API 密钥、私密文本或不相关日志。当前自动测试使用 GI/网络替身和隔离安装目录，不等同于全部 GNOME/GPU 组合的实机验收。
 
+OCR 诊断可执行包内 `bash diagnose-ocr.sh`，也可以直接运行安装目录中的同名脚本。
+只读取版本、解码能力、原生接口声明及截图/识别/缩略图阶段日志，不截图、不读取接口密钥或提示词，不修改设置。
+
 ## English quick start
 
 A GNOME Shell 45–51 Wayland-native selection assistant with translation, explanation,
-polishing, email, Q&A and custom prompts. Connect your own model backend.
+polishing, email, Q&A and custom prompts. Version 2.2.4 fixes render-scale-aware
+selection tracking while preserving the accepted Chinese line-end correction
+and working native screenshot OCR from 2.2.2
+for GNOME 49–51, using an existing local Ollama PaddleOCR-VL model. GNOME 51 desktop
+acceptance is required; automated mocks are not native compositor testing.
+OCR uses the official `OCR:` prompt, no language picker, and never uploads screenshots
+to an online text backend. Connect your own model backend.
 
 Download **popup-llm-officeassistent-precompiled.zip** from [Releases](https://github.com/yanjing-chen/popup-llm-officeassistent/releases/latest), extract it, and run `bash install.sh` as your normal desktop user. Alternatively, copy the complete UUID directory into `~/.local/share/gnome-shell/extensions/`.
 The GSettings schema is already compiled. No Python, Node.js or compilation is required for installation or runtime. Save your work, log out and log back in, enable the extension and configure real available models in Preferences.
