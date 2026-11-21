@@ -1,9 +1,11 @@
-import {clampPopupPosition, popupDragDamage, modelIdleSeconds, migrateModelIdleTime,
+import {clampPopupPosition, popupDragDamage, modelIdleSeconds, migrateModelIdleTime, migrateIndependentChunkLimits,
     isOllamaCatalog, parseModelList} from '../popup-llm-officeassistent@yanjing_chen@qq.com/backendUtils.js';
 import {pngInfo, MAX_OCR_IMAGE_BYTES, MAX_OCR_RESPONSE_BYTES, OcrStream, ocrPayload,
     requireOcrModel, localOllamaEndpoint, ocrPreviewSize, ocrError} from '../popup-llm-officeassistent@yanjing_chen@qq.com/ocrUtils.js';
 import {IdleModels} from '../popup-llm-officeassistent@yanjing_chen@qq.com/idleModels.js';
 import {makeTextMap, characterAtByte, selectionRange} from '../popup-llm-officeassistent@yanjing_chen@qq.com/textSelection.js';
+import {translationPlan, translatedText, translationPrompt, longFormText, longFormPrompt, TranslationResponse, translationError} from '../popup-llm-officeassistent@yanjing_chen@qq.com/translation.js';
+import {resizeHit, resizedRect, resultFontSize, resultFontStyle} from '../popup-llm-officeassistent@yanjing_chen@qq.com/popupGeometry.js';
 import {loadClass, Widget, settings} from './mocks.mjs';
 
 export function fixture({stream = false, kind = 'ollama', version = '51', nativeFrames = true, chromeBoundary = false, ocrModels = [], ocr = false, screenshotExports = {UIMode: {SCREENSHOT_ONLY: 'screenshot-only'}}} = {}) {
@@ -82,7 +84,9 @@ export function fixture({stream = false, kind = 'ollama', version = '51', native
     const events = {MOTION: 1, BUTTON_RELEASE: 2, KEY_PRESS: 3, BUTTON_PRESS: 4};
     const Clutter = {Orientation: {HORIZONTAL: 0, VERTICAL: 1}, EventType: events, Timeline,
         ...(Number.parseInt(version, 10) < 47 ? {Color} : {}),
-        ...(Number.parseInt(version, 10) >= 51 ? {CursorType: {INHERIT: 0, DEFAULT: 2, TEXT: 10}} : {}),
+        ...(Number.parseInt(version, 10) >= 51 ? {CursorType: {INHERIT: 0, DEFAULT: 2, TEXT: 10,
+            N_RESIZE: 20, NE_RESIZE: 21, NW_RESIZE: 22, S_RESIZE: 23, SE_RESIZE: 24, SW_RESIZE: 25,
+            W_RESIZE: 26, E_RESIZE: 19}} : {}),
         OffscreenRedirect: {AUTOMATIC_FOR_OPACITY: 1, ALWAYS: 2, ON_IDLE: 4},
         ModifierType: {BUTTON1_MASK: 256, CONTROL_MASK: 4},
         EVENT_STOP: 1, EVENT_PROPAGATE: 0, KEY_Escape: 27,
@@ -132,11 +136,26 @@ export function fixture({stream = false, kind = 'ollama', version = '51', native
         send_and_read_async(message, _priority, cancellable, callback) {requests.push({message, cancellable, callback, session: this});}
         send_and_read_finish(result) {return {get_data: () => new TextEncoder().encode(JSON.stringify(result))};}
         send_async(message, _priority, cancellable, callback) {requests.push({message, cancellable, callback, session: this});}
-        send_finish(result) {return result;}
+        send_finish(result) {
+            if (result?.lines && !result.read_bytes_async) {
+                let read = false;
+                result.read_bytes_async = (_n, _p, cancellable, callback) =>
+                    queueMicrotask(() => callback(result, {cancellable}));
+                result.read_bytes_finish = finished => {
+                    if (finished.cancellable?.cancelled) throw new Error('cancelled');
+                    const bytes = read ? new Uint8Array() : new TextEncoder().encode(result.lines.join('\n') + '\n');
+                    read = true;
+                    return {get_data: () => bytes};
+                };
+                result.close_async = (_p, _c, callback) => {result.closed = true; callback?.(result, {});};
+                result.close_finish = () => {};
+            }
+            return result;
+        }
         abort() {this.aborted = true;}
     }
     const shared = {
-        Config: {PACKAGE_VERSION: version}, clampPopupPosition, popupDragDamage, modelIdleSeconds, migrateModelIdleTime,
+        Config: {PACKAGE_VERSION: version}, clampPopupPosition, popupDragDamage, modelIdleSeconds, migrateModelIdleTime, migrateIndependentChunkLimits,
         makeTextMap, characterAtByte, selectionRange,
         Mtk: {Rectangle: class {constructor(properties) {Object.assign(this, properties);}}},
         St, Clutter, Cogl: {Color, PixelFormat: {RGBA_8888: 4, RGB_888: 3}}, GLib,
@@ -184,13 +203,15 @@ export function fixture({stream = false, kind = 'ollama', version = '51', native
             workspace_manager: {get_active_workspace: () => ({get_work_area_for_monitor: index => rectangles[index]})}},
     };
     const FrameLoop = loadClass('frameLoop.js', 'FrameLoop', shared);
+    const TextClient = loadClass('textClient.js', 'TextClient', {...shared, TranslationResponse, translationError});
     const OcrClient = loadClass('ocrClient.js', 'OcrClient', {...shared, pngInfo, localOllamaEndpoint, ocrPayload,
         OcrStream, ocrError, MAX_OCR_RESPONSE_BYTES});
     const OcrPreview = loadClass('ocrPreview.js', 'OcrPreview', {...shared, pngInfo, ocrPreviewSize});
     const NativeScreenshot = loadClass('nativeScreenshot.js', 'NativeScreenshot', {...shared, pngInfo, MAX_OCR_IMAGE_BYTES,
         Screenshot: screenshotExports});
     const ResultWindow = loadClass('resultWindow.js', 'ResultWindow', {...shared, FrameLoop, OcrClient, OcrPreview,
-        pngInfo, localOllamaEndpoint, requireOcrModel, isOllamaCatalog, parseModelList});
+        pngInfo, localOllamaEndpoint, requireOcrModel, isOllamaCatalog, parseModelList,
+        TextClient, translationPlan, translatedText, translationPrompt, longFormText, longFormPrompt, resizeHit, resizedRect, resultFontSize, resultFontStyle});
     const Manager = loadClass('extension.js', 'PopupLLMOfficeAssistent', {...shared, ResultWindow, NativeScreenshot,
         Extension: class {}, IdleModels,
         ModelBackend: class {async discover() {return {kind};} dispose() {} async unload() {}},
@@ -212,13 +233,13 @@ export function fixture({stream = false, kind = 'ollama', version = '51', native
     extension._resultContainer = new Widget(); extension._resultLabel = new Widget();
     extension._qaHistory = [{role: 'user', content: 'question'}];
     return {extension, manager, config, requests, finishes, begins, stage, events, logs, sources, main, damages, timelines,
-        OcrClient, OcrPreview, previewLoads, previewTextures, NativeScreenshot, screenshotUI, alerts,
+        OcrClient, OcrPreview, TextClient, previewLoads, previewTextures, NativeScreenshot, screenshotUI, alerts,
         Gio: shared.Gio, setOcrModels: models => {serverModels = models;},
         eventActorQueries, registerEventActor: (event, actor) => eventActors.set(event, actor),
         St, Clutter, GLib, Pango: shared.Pango, chrome, chromeBoundaryActor, selection, clipboardValues, clipboardWrites, ResultWindow, FrameLoop,
         pointer: value => {pointer = value;}, runTimeouts, tick: runTimeouts, frames, flushIdles,
         advance: ms => {now += ms;}, grabCalls: () => grabCalls,
         createWindow: (text = 'selected text', action = 'translate', options = {}) => manager._showResultWindow(text, action, options),
-        reply: (index, content = 'answer') => requests[index].callback(requests[index].session, {choices: [{message: {content}}]}),
+        reply: (index, content = 'answer') => requests[index].callback(requests[index].session, {choices: [{message: {content}, finish_reason: 'stop'}]}),
     };
 }

@@ -14,6 +14,9 @@ import {makeTextMap, characterAtByte, selectionRange} from './textSelection.js';
 import {OcrClient} from './ocrClient.js';
 import {OcrPreview} from './ocrPreview.js';
 import {localOllamaEndpoint, requireOcrModel, pngInfo} from './ocrUtils.js';
+import {TextClient} from './textClient.js';
+import {translationPlan, translatedText, translationPrompt, longFormText, longFormPrompt} from './translation.js';
+import {resizeHit, resizedRect, resultFontSize, resultFontStyle} from './popupGeometry.js';
 
 const LOADING_TEXT = '正在连接大模型... (Connecting to LLM...)';
 const PRIMARY_BUTTON_MASK = Clutter.ModifierType?.BUTTON1_MASK ?? (1 << 8);
@@ -26,6 +29,11 @@ export class ResultWindow {
         this._settings = owner._settings;
         this._soupSession = new Soup.Session();
         this._closed = false;
+        // The pin protects this one popup, not every result window.
+        // It is intentionally session-local and does not lock the extension itself.
+        this._pinned = false;
+        this._pinButton = null;
+        this._closeButton = null;
         this._rawResponseText = '';
         this._activeRequest = null;
         this._positionIdleId = 0;
@@ -39,6 +47,11 @@ export class ResultWindow {
         this._outputLabels = new Set();
         this._translateStyleState = {...(translateStyle || owner._translateStyleState)};
         this._ocrImage = ocrImage;
+        this._resizeState = null;
+        const [width, height] = this._settings.get_value?.('saved-result-size').deep_unpack() || [];
+        this._manualResultSize = width > 0 && height > 0 ? {width, height} : null;
+        this._fontLabels = new Map();
+        this._fontSettingsId = this._settings.connect?.('changed::result-font-size', () => this._refreshResultFont()) || 0;
     }
 
     get _idleModels() { return this._owner?._idleModels; }
@@ -89,13 +102,19 @@ export class ResultWindow {
 
     _constrainResultWindow(pointer = null) {
         const actor = this._resultContainer;
-        if (!actor || this._dragState)
+        if (!actor || this._dragState || this._resizeState)
             return;
         const monitor = pointer ? this._monitorAt(...pointer) :
             this._resultWorkArea || this._monitorAt(actor.x + 16, actor.y + 16);
         this._resultWorkArea = monitor;
-        const maxHeight = Math.max(80, Math.min(800, Math.floor(monitor.height * 0.7)));
-        const width = Math.max(80, Math.min(450, monitor.width - 16));
+        const manual = this._manualResultSize;
+        const maxHeight = Math.max(80, manual ? monitor.height - 16 : Math.min(800, Math.floor(monitor.height * 0.7)));
+        const width = Math.max(80, Math.min(manual?.width || 450, monitor.width - 16));
+        if (manual) {
+            manual.width = width;
+            manual.height = Math.max(Math.min(this._resizeMinHeight || 260, maxHeight), Math.min(manual.height, maxHeight));
+            actor.set_height(manual.height);
+        }
         const previous = this._resultSize;
         // Compare requested constraints, not the actor's theme-adjusted allocation.
         // This function is NEVER called synchronously from notify::height.
@@ -104,12 +123,13 @@ export class ResultWindow {
         if (!previous || previous.maxHeight !== maxHeight)
             actor.set_style(`max-height: ${maxHeight}px; min-height: ${Math.min(140, maxHeight)}px;`);
         this._resultSize = {width, maxHeight};
+        this._fitOcrPreview();
         this._applyResultPosition();
     }
 
     _applyResultPosition() {
         const actor = this._resultContainer;
-        if (!actor || this._dragState || !this._resultWorkArea || this._applyingPosition)
+        if (!actor || this._pinned || this._dragState || this._resizeState || !this._resultWorkArea || this._applyingPosition)
             return;
         const position = this._resultPosition || {x: actor.x, y: actor.y};
         const next = clampPopupPosition(position.x, position.y,
@@ -127,7 +147,7 @@ export class ResultWindow {
     }
 
     _queueResultPosition() {
-        if (this._dragState || this._positionIdleId || !this._resultContainer)
+        if (this._dragState || this._resizeState || this._positionIdleId || !this._resultContainer)
             return;
         const actor = this._resultContainer;
         this._positionIdleId = GLib.idle_add(GLib.PRIORITY_DEFAULT_IDLE, () => {
@@ -191,6 +211,8 @@ export class ResultWindow {
     }
 
     _beginPopupDrag(handle, event) {
+        if (this._pinned)
+            return Clutter.EVENT_STOP;
         if (event.get_button() !== 1 || !this._resultContainer)
             return Clutter.EVENT_PROPAGATE;
         this._clearOutputSelection();
@@ -317,10 +339,249 @@ export class ResultWindow {
         }
     }
 
+    _resizeEdgeAt(x, y) {
+        const actor = this._resultContainer;
+        if (!actor || this._pinned || this._dragState || this._selectionState?.selecting)
+            return null;
+        const [ok, localX, localY] = actor.transform_stage_point(x, y);
+        return ok ? resizeHit(localX, localY, actor.width, actor.height) : null;
+    }
+
+    _resizeCursor(edge) {
+        const cursor = edge ? Clutter.CursorType?.[edge.toUpperCase() + '_RESIZE'] : Clutter.CursorType?.INHERIT;
+        if (cursor !== undefined)
+            this._resultContainer?.set_cursor_type?.(cursor);
+    }
+
+    _captureResizeEvent(event) {
+        const type = event.type();
+        if (this._resizeState) {
+            if (type === Clutter.EventType.MOTION) {
+                // The frame clock reads the latest native pointer; queued motion
+                // events never replace it with an older sample.
+                return true;
+            }
+            if (type === Clutter.EventType.BUTTON_RELEASE && event.get_button() === 1) {
+                try { this._movePopupResize(this._resizeState, ...event.get_coords()); }
+                finally { this._endPopupResize(); }
+                return true;
+            }
+            if (type === Clutter.EventType.KEY_PRESS && event.get_key_symbol() === Clutter.KEY_Escape) {
+                this._endPopupResize({commit: false});
+                return true;
+            }
+        }
+        if (type === Clutter.EventType.MOTION && !this._dragState && !this._selectionState?.selecting)
+            this._resizeCursor(this._resizeEdgeAt(...event.get_coords()));
+        if (type === Clutter.EventType.BUTTON_PRESS && event.get_button() === 1) {
+            const edge = this._resizeEdgeAt(...event.get_coords());
+            if (edge) {
+                const source = global.stage.get_event_actor(event);
+                if ([...this._outputLabels].some(label => source && label.contains(source)))
+                    return false; // A text hit always belongs to selection, not resizing.
+                return this._beginPopupResize(edge, event);
+            }
+        }
+        return false;
+    }
+
+    _beginPopupResize(edge, event) {
+        if (this._closed || this._pinned || this._dragState || this._resizeState || !this._resultContainer)
+            return false;
+        const [x, y] = event.get_coords();
+        if (!Number.isFinite(x) || !Number.isFinite(y))
+            return false;
+        this._clearOutputSelection();
+        this._owner?._closePopupIcon();
+        this._owner?._activateWindow(this);
+        this._cancelResultPosition();
+        const actor = this._resultContainer;
+        const state = {actor, edge, startX: x, startY: y,
+            original: {x: actor.x, y: actor.y, width: actor.width, height: actor.height},
+            previousSize: this._manualResultSize ? {...this._manualResultSize} : null,
+            area: this._monitorAt(actor.x + 16, actor.y + 16),
+            pendingText: null, scrollPending: Boolean(this._scrollTimeoutId), lastX: x, lastY: y};
+        this._resizeState = state;
+        this._cancelResultScroll();
+        try {
+            actor.remove_transition('opacity');
+            actor.opacity = 255;
+            this._resizeCursor(edge);
+            this._resizeLoop = new FrameLoop(actor, () => {
+                if (this._resizeState !== state)
+                    return false;
+                if (this._closed || this._resultContainer !== actor || actor.visible === false ||
+                    Main.sessionMode?.isLocked || Main.overview?.visible) {
+                    this._endPopupResize();
+                    return false;
+                }
+                const [px, py, modifiers] = global.get_pointer();
+                this._movePopupResize(state, px, py);
+                if (!(modifiers & PRIMARY_BUTTON_MASK)) {
+                    this._endPopupResize();
+                    return false;
+                }
+                return true;
+            }, () => this._endPopupResize());
+            this._resizeLoop.start();
+        } catch (_error) {
+            this._endPopupResize({commit: false});
+            return false;
+        }
+        return true;
+    }
+
+    _movePopupResize(state, x, y) {
+        if (this._resizeState !== state || !Number.isFinite(x) || !Number.isFinite(y) ||
+            (state.lastX === x && state.lastY === y))
+            return;
+        state.lastX = x;
+        state.lastY = y;
+        const rect = resizedRect(state.original, state.edge, x - state.startX, y - state.startY,
+            state.area, 300, this._resizeMinHeight || 260);
+        if (state.rect && ['x', 'y', 'width', 'height'].every(key => state.rect[key] === rect[key]))
+            return;
+        if (!state.rect)
+            state.actor.set_style(`max-height: ${state.area.height - 16}px; min-height: ${Math.min(this._resizeMinHeight || 260, state.area.height - 16)}px;`);
+        state.rect = rect;
+        this._manualResultSize = {width: rect.width, height: rect.height};
+        this._resultPosition = {x: rect.x, y: rect.y};
+        this._resultWorkArea = state.area;
+        this._resultSize = {width: rect.width, maxHeight: state.area.height - 16};
+        if (state.actor.width !== rect.width)
+            state.actor.set_width(rect.width);
+        if (state.actor.height !== rect.height)
+            state.actor.set_height(rect.height);
+        if (state.actor.x !== rect.x || state.actor.y !== rect.y)
+            state.actor.set_position(rect.x, rect.y);
+        this._fitOcrPreview();
+        // Native layout invalidates the old/new paint volumes. No clones,
+        // global input grabs, stage-wide repaint loops or resize timers.
+    }
+
+    _endPopupResize({commit = true} = {}) {
+        const state = this._resizeState;
+        this._resizeState = null;
+        const loop = this._resizeLoop;
+        this._resizeLoop = null;
+        loop?.stop();
+        if (!state)
+            return;
+        try { this._resizeCursor(null); } catch (_error) {}
+        if (this._closed || this._resultContainer !== state.actor)
+            return;
+        try {
+            if (!commit) {
+                this._manualResultSize = state.previousSize;
+                state.actor.set_width(state.original.width);
+                state.actor.set_height(state.previousSize ? state.original.height : -1);
+                state.actor.set_position(state.original.x, state.original.y);
+                this._resultPosition = {x: state.original.x, y: state.original.y};
+                this._resultSize = null;
+            } else if (state.rect) {
+                const {width, height} = state.rect;
+                this._settings.set_value?.('saved-result-size', new GLib.Variant('(ii)', [width, height]));
+            }
+            this._constrainResultWindow([state.actor.x + 16, state.actor.y + 16]);
+        } catch (_error) { /* A disappearing actor must not retain its frame loop. */ }
+        if (state.pendingText?.label === this._resultLabel)
+            this._setResultText(state.pendingText.text);
+        if ((state.scrollPending || state.pendingText) && state.actor.visible !== false &&
+            !Main.sessionMode?.isLocked && !Main.overview?.visible)
+            this._scrollToBottom();
+    }
+
+    _setPinned(pinned) {
+        if (this._closed || !this._resultContainer || this._pinned === Boolean(pinned))
+            return;
+        // Finish a pending gesture before locking the final displayed position.
+        this._endPopupResize();
+        this._endPopupDrag();
+        this._cancelResultPosition();
+        this._pinned = Boolean(pinned);
+        if (this._pinned) {
+            const actor = this._resultContainer;
+            this._resultPosition = {x: actor.x, y: actor.y};
+        }
+        // Pin status is visible; the disabled close button cannot accidentally
+        // dismiss a pinned result. A second internal guard protects against Esc.
+        this._pinButton?.[this._pinned ? 'add_style_pseudo_class' : 'remove_style_pseudo_class']('checked');
+        if (this._pinButton)
+            this._pinButton.accessible_name = this._pinned ? '解除固定弹窗' : '固定弹窗位置并禁止关闭';
+        // St.Button is a Clutter actor, NOT Gtk.Widget: set_sensitive() is
+        // not supported here (unlike Adw preferences rows). Use the native
+        // reactive/focus properties and an explicit visual locked state.
+        this._closeButton?.set_reactive(!this._pinned);
+        this._closeButton?.set_can_focus(!this._pinned);
+        this._closeButton?.[this._pinned ? 'add_style_pseudo_class' : 'remove_style_pseudo_class']('locked');
+        this._resizeCursor(null);
+        if (!this._pinned)
+            this._queueResultPosition();
+    }
+
+    _fitOcrPreview() {
+        const preview = this._ocrPreview;
+        if (!preview?.actor || !this._resultContainer)
+            return;
+        // Resize only the already-decoded view; never touch the original PNG,
+        // re-run OCR or decode a new texture during a pointer gesture.
+        const factor = Math.min(1, Math.max(1, this._resultContainer.width - 52) / preview.size.width);
+        const width = preview.size.width * factor, height = preview.size.height * factor;
+        preview.actor.set_width(width);
+        preview.actor.set_height(height);
+        const child = preview.actor.get_child();
+        if (child?.content) {
+            child.set_width(width);
+            child.set_height(height);
+        }
+    }
+
+    _styleOutputFont(label) {
+        if (!this._fontLabels.has(label))
+            this._fontLabels.set(label, label.get_style?.() || '');
+        const size = resultFontSize(this._settings?.get_int('result-font-size'));
+        // An empty base style previously produced "; font-size: 22pt;".
+        // GNOME Shell's St CSS parser is strict about malformed declarations:
+        // build a valid inline style instead of blindly prepending a semicolon.
+        label.set_style(resultFontStyle(this._fontLabels.get(label), size));
+        this._applyVisibleTextFont(label, size);
+    }
+
+    _applyVisibleTextFont(label, size) {
+        // A St.Label may be constructed before its window joins the stage.
+        // get_theme_node() is unsafe before attachment: defer this extra
+        // guarantee until it is on the stage. The inline CSS is already set.
+        if (!label.get_stage?.())
+            return;
+        const font = label.get_theme_node?.()?.get_font?.()?.copy?.();
+        const text = label.get_clutter_text?.();
+        if (!font || !text?.set_font_description)
+            return;
+        // Use the resolved theme font to retain the system family and the
+        // bold weight of QA user messages, modifying *only* the point size.
+        font.set_size(resultFontSize(size) * Pango.SCALE);
+        text.set_font_description(font);
+    }
+
+    _refreshResultFont() {
+        if (this._closed)
+            return;
+        this._endPopupResize();
+        this._endPopupDrag();
+        this._clearOutputSelection();
+        for (const label of this._fontLabels.keys())
+            this._styleOutputFont(label);
+        this._queueResultPosition();
+    }
+
     _setResultText(text) {
         const label = this._resultLabel;
         if (!label)
             return;
+        if (this._resizeState) {
+            this._resizeState.pendingText = {label, text};
+            return;
+        }
         if (this._dragState && this._dragState.actor === this._resultContainer) {
             // Do not dirty/reflow the moving text surface for each SSE token.
             // Keep the latest complete display value, including errors and ''.
@@ -342,6 +603,8 @@ export class ResultWindow {
             this._resultContainer = this._box({ orientation: Clutter.Orientation.VERTICAL,
                 reactive: true, style_class: 'translator-result-window libadwaita-style' });
             this._resultContainer.connect('captured-event', (_actor, event) => {
+                if (this._captureResizeEvent(event))
+                    return Clutter.EVENT_STOP;
                 const selecting = this._selectionState;
                 if (selecting?.selecting && event.type() === Clutter.EventType.MOTION) {
                     this._updateOutputSelection(selecting, ...event.get_coords());
@@ -373,10 +636,12 @@ export class ResultWindow {
             });
             this._resultContainer.connect('notify::visible', actor => {
                 if (!actor.visible) {
+                    this._endPopupResize();
                     this._endPopupDrag();
                     this._clearOutputSelection();
                 }
             });
+            this._resizeMinHeight = actionType === 'ocr' ? 420 : 260;
 
             // ======= 顶部标题栏 =======
             let headerBox = this._box({ orientation: Clutter.Orientation.HORIZONTAL, style: 'margin-bottom: 6px;' });
@@ -402,7 +667,19 @@ export class ResultWindow {
                     this._endPopupDrag({commit: false});
             });
             
-            let closeButton = new St.Button({ child: new St.Icon({ icon_name: 'window-close-symbolic', icon_size: 14 }), style_class: 'translator-close-btn' });
+            // Keep the pin at the top-left, outside the title drag handle.
+            const pinButton = new St.Button({
+                child: new St.Icon({icon_name: 'view-pin-symbolic', icon_size: 14}),
+                style_class: 'translator-pin-btn',
+                accessible_name: '固定弹窗位置并禁止关闭',
+                can_focus: true,
+            });
+            pinButton.connect('clicked', () => this._setPinned(!this._pinned));
+            this._pinButton = pinButton;
+            headerBox.add_child(pinButton);
+
+            let closeButton = new St.Button({ child: new St.Icon({ icon_name: 'window-close-symbolic', icon_size: 14 }), style_class: 'translator-close-btn', reactive: true, can_focus: true });
+            this._closeButton = closeButton;
             closeButton.connect('clicked', () => this._closeUI());
 
             headerBox.add_child(dragHandle);
@@ -447,6 +724,11 @@ export class ResultWindow {
                 this._ocrPreview = new OcrPreview(this._ocrImage.png,
                     Math.max(1, Math.min(480, area.width - 80)),
                     Math.max(1, Math.min(220, Math.floor(area.height * 0.24))));
+                const currentPreview = this._ocrPreview;
+                currentPreview.ready.then(() => {
+                    if (!this._closed && this._ocrPreview === currentPreview)
+                        this._fitOcrPreview();
+                });
                 preview.add_child(this._ocrPreview.actor);
                 this._resultContainer.add_child(preview);
             }
@@ -595,11 +877,16 @@ export class ResultWindow {
             }
 
             // ======= 结果显示区 / 智能问答对话框 =======
+            if (['translate', 'polish', 'explain'].includes(actionType)) {
+                this._translationStatus = new St.Label({text: '', visible: false,
+                    style_class: 'translator-translation-status'});
+                this._resultContainer.add_child(this._translationStatus);
+            }
             if (actionType === 'qa') {
                 this._qaHistory = [];
                 this._lastLLMResponse = '';
 
-                this._resultWindow = new St.ScrollView({ hscrollbar_policy: St.PolicyType.NEVER, vscrollbar_policy: St.PolicyType.AUTOMATIC, y_expand: true, style: 'margin-bottom: 6px;' });
+                this._resultWindow = new St.ScrollView({ hscrollbar_policy: St.PolicyType.NEVER, vscrollbar_policy: St.PolicyType.AUTOMATIC, y_expand: true, style: 'margin-bottom: 6px; min-height: 0px;' });
                 this._chatContainer = this._box({ orientation: Clutter.Orientation.VERTICAL, x_expand: true });
                 this._resultWindow.set_child(this._chatContainer);
                 this._resultContainer.add_child(this._resultWindow);
@@ -630,6 +917,7 @@ export class ResultWindow {
                     userClutter.line_wrap_mode = Pango.WrapMode.WORD_CHAR;
                     userClutter.ellipsize = Pango.EllipsizeMode.NONE;
                     this._chatContainer.add_child(userLabel);
+                    this._styleOutputFont(userLabel);
                     this._makeOutputSelectable(userLabel);
 
                     let llmLabel = new St.Label({ text: '答：' + LOADING_TEXT, style_class: 'qa-chat-llm', x_expand: true, style: 'text-align: left;' });
@@ -638,6 +926,7 @@ export class ResultWindow {
                     llmClutter.line_wrap_mode = Pango.WrapMode.WORD_CHAR;
                     llmClutter.ellipsize = Pango.EllipsizeMode.NONE;
                     this._chatContainer.add_child(llmLabel);
+                    this._styleOutputFont(llmLabel);
                     this._makeOutputSelectable(llmLabel);
 
                     this._resultLabel = llmLabel;
@@ -662,14 +951,16 @@ export class ResultWindow {
                 introClutter.line_wrap_mode = Pango.WrapMode.WORD_CHAR;
                 introClutter.ellipsize = Pango.EllipsizeMode.NONE;
                 this._chatContainer.add_child(introLabel);
+                this._styleOutputFont(introLabel);
 
             } else {
-                this._resultWindow = new St.ScrollView({ hscrollbar_policy: St.PolicyType.NEVER, vscrollbar_policy: St.PolicyType.AUTOMATIC, y_expand: true });
+                this._resultWindow = new St.ScrollView({ hscrollbar_policy: St.PolicyType.NEVER, vscrollbar_policy: St.PolicyType.AUTOMATIC, y_expand: true, style: 'min-height: 0px;' });
                 let contentBox = this._box({ orientation: Clutter.Orientation.VERTICAL, x_expand: true, y_expand: true });
                 this._resultLabel = new St.Label({ text: '', style_class: 'translator-result-text', y_expand: true });
                 let clutterText = this._resultLabel.get_clutter_text();
                 clutterText.line_wrap = true; clutterText.line_wrap_mode = Pango.WrapMode.WORD_CHAR; clutterText.ellipsize = Pango.EllipsizeMode.NONE; 
                 contentBox.add_child(this._resultLabel);
+                this._styleOutputFont(this._resultLabel);
                 this._makeOutputSelectable(this._resultLabel);
                 this._resultWindow.set_child(contentBox);
                 this._resultContainer.add_child(this._resultWindow);
@@ -706,6 +997,10 @@ export class ResultWindow {
             });
             
             Main.layoutManager.addChrome(this._resultContainer);
+            // Force the actual Clutter.Text font after the theme node becomes
+            // available; otherwise the first opened window relies on CSS only.
+            for (const label of this._fontLabels.keys())
+                this._applyVisibleTextFont(label, this._settings?.get_int('result-font-size'));
             this._resultContainer.opacity = 0;
             this._resultContainer.ease({ opacity: 255, duration: 180, mode: Clutter.AnimationMode.EASE_OUT_CUBIC });
 
@@ -845,75 +1140,167 @@ export class ResultWindow {
             return;
         }
 
-        try {
-        let message = Soup.Message.new('POST', apiUrl);
-        if (!message)
-            throw new Error('API 地址无效');
-        message.request_headers.append('Content-Type', 'application/json');
-        
-        const apiKey = this._settings.get_string('api-key');
-        if (apiKey) message.request_headers.append('Authorization', `Bearer ${apiKey}`);
-
-        const payloadBytes = new TextEncoder().encode(JSON.stringify(payload));
-        message.set_request_body_from_bytes('application/json', new GLib.Bytes(payloadBytes));
-
-        if (isStream) {
-            this._soupSession.send_async(message, GLib.PRIORITY_DEFAULT, request.cancellable, (session, res) => {
-                try {
-                    let inputStream = session.send_finish(res);
-                    if (!this._requestIsCurrent(request)) {
-                        inputStream.close(null);
-                        this._finishRequest(request);
-                        return;
-                    }
-                    if (message.status_code !== 200) {
-                        this._setResultText(`连接失败 (Connection Failed)\nHTTP Code: ${message.status_code}\n请检查 API 地址或模型名称.`);
-                        inputStream.close(null);
-                        this._finishRequest(request);
-                        return;
-                    }
-                    this._setResultText('');
-                    this._startIncrementalRead(inputStream, actionType, request);
-                } catch (e) {
-                    if (this._requestIsCurrent(request) && this._resultLabel) this._setResultText(`网络流被手动截断或中断 (Stream Aborted/Error): ${e.message}`);
-                    this._finishRequest(request);
-                }
-            });
+        // All long-form plans are validated before their first API request.
+        if (['translate', 'polish', 'explain'].includes(actionType)) {
+            request.task = actionType === 'translate' ?
+                this._runTranslation(request, payload, text, apiUrl) :
+                this._runLongForm(request, payload, text, apiUrl, actionType);
         } else {
-            this._soupSession.send_and_read_async(message, GLib.PRIORITY_DEFAULT, request.cancellable, (session, res) => {
-                try {
-                    let bytes = session.send_and_read_finish(res);
-                    if (!this._requestIsCurrent(request))
-                        return;
-                    if (message.status_code !== 200) { this._setResultText(`API 报错 (API Error)\nHTTP Code: ${message.status_code}`); return; }
-                    let response = JSON.parse(new TextDecoder().decode(bytes.get_data()));
-                    let choice = response.choices && response.choices[0];
-                    let content = '';
-                    if (choice && choice.message) {
-                        content = choice.message.content || '';
-                        if (!content && choice.message.reasoning_content && this._settings.get_boolean('enable-think')) content = choice.message.reasoning_content;
-                    }
-                    if (!this._settings.get_boolean('enable-think')) content = content.replace(/<think>[\s\S]*?<\/think>/g, '').trim();
-                    
-                    if (this._resultLabel) {
-                        this._setResultText(actionType === 'qa' ? '答：' + content : content);
-                    }
-                    
-                    if (actionType === 'qa') {
-                        this._qaHistory.push({ role: 'assistant', content: content });
-                        this._lastLLMResponse = content; 
-                        this._scrollToBottom();
-                    }
-                } catch (e) {
-                    if (this._requestIsCurrent(request) && this._resultLabel) this._setResultText(`被手动截断或解析失败 (Aborted / Parse Failed): ${e.message}`);
-                } finally {
-                    this._finishRequest(request);
-                }
-            });
+            // Keep mail, QA and arbitrary custom actions as single requests:
+            // their instructions can depend on the complete input context.
+            // Use the same completion-aware parser so a length stop is visible.
+            request.task = this._runSingleRequest(request, payload, apiUrl, actionType);
         }
-        } catch (_error) {
-            if (this._requestIsCurrent(request) && this._resultLabel)
-                this._setResultText('无法发送请求，请检查 API 地址和后端连接。');
+    }
+
+    async _runSingleRequest(request, payload, endpoint, actionType) {
+        const client = new TextClient(this._soupSession, endpoint, this._settings.get_string('api-key'));
+        const isQA = actionType === 'qa';
+        try {
+            const result = await client.complete(payload, {
+                cancellable: request.cancellable,
+                showThoughts: this._settings.get_boolean('enable-think'),
+                onText: content => {
+                    if (!this._requestIsCurrent(request)) return;
+                    this._rawResponseText = content;
+                    this._setResultText(isQA ? `答：${content}` : content);
+                    this._scrollToBottom();
+                },
+            });
+            if (!this._requestIsCurrent(request)) return;
+            this._rawResponseText = result.text;
+            this._setResultText(isQA ? `答：${result.text}` : result.text);
+            if (isQA) {
+                this._qaHistory.push({role: 'assistant', content: result.text});
+                this._lastLLMResponse = result.text;
+            }
+            this._scrollToBottom();
+        } catch (error) {
+            if (this._requestIsCurrent(request)) {
+                const partial = error.partialText ? `\n\n【尚未确认的部分输出】\n${error.partialText}` : '';
+                this._setResultText(`【处理未完成】${error.message.replaceAll('翻译', '处理')}${partial}`);
+            }
+        } finally {
+            client.dispose();
+            this._finishRequest(request);
+        }
+    }
+
+    async _runLongForm(request, payload, source, endpoint, actionType) {
+        const client = new TextClient(this._soupSession, endpoint, this._settings.get_string('api-key'));
+        const done = [];
+        const label = actionType === 'polish' ? '润色' : '解释';
+        let plan = null;
+        try {
+            const limitKey = actionType === 'polish' ? 'polish-chunk-limit' : 'explain-chunk-limit';
+            plan = translationPlan(source, this._settings.get_int(limitKey) || 1400);
+            if (!plan.parts.length) throw new Error('没有可处理的原文。');
+            const oversizeNote = plan.oversizedSentences ?
+                ` · ${plan.oversizedSentences} 个超限长句保留完整` : '';
+            for (let index = 0; index < plan.parts.length; index++) {
+                if (!this._requestIsCurrent(request)) return;
+                if (this._translationStatus) {
+                    this._translationStatus.visible = plan.parts.length > 1;
+                    this._translationStatus.set_text(`正在${label} ${index + 1}/${plan.parts.length} 块 · 原文 ${plan.paragraphs} 段${oversizeNote}`);
+                }
+                const part = plan.parts[index];
+                const result = await client.complete({...payload, messages: [
+                    {role: 'system', content: longFormPrompt(payload.messages[0].content,
+                        actionType, index, plan.parts.length)},
+                    {role: 'user', content: part.source},
+                ]}, {cancellable: request.cancellable,
+                    // Returning reasoning in replacement prose would destroy
+                    // paragraph reconstruction: use only final output for polish.
+                    showThoughts: actionType === 'explain' && this._settings.get_boolean('enable-think'),
+                    onText: content => {
+                        if (!this._requestIsCurrent(request)) return;
+                        this._rawResponseText = longFormText(plan, done, content, actionType);
+                        this._setResultText(this._rawResponseText);
+                        this._scrollToBottom();
+                    }});
+                if (!this._requestIsCurrent(request)) return;
+                done.push(result.text);
+                this._rawResponseText = longFormText(plan, done, '', actionType);
+                this._setResultText(this._rawResponseText);
+                this._scrollToBottom();
+                log(`[PopupLLM ${label}] part=${index + 1}/${plan.parts.length} source-chars=${part.source.length} bytes=${result.bytes} frames=${result.frames} finish=${result.finishReason}`);
+            }
+            if (this._translationStatus)
+                this._translationStatus.set_text(`${label}完成 ${done.length}/${plan.parts.length} 块 · 原文 ${plan.paragraphs} 段${oversizeNote}`);
+        } catch (error) {
+            if (this._requestIsCurrent(request)) {
+                const index = done.length + 1, total = plan?.parts.length || 1;
+                const prefix = plan ? longFormText(plan, done, '', actionType) : '';
+                const partial = error.partialText ? `\n本块尚未确认的部分输出：\n${error.partialText}` : '';
+                this._setResultText(`${prefix}${prefix ? '\n\n' : ''}【第 ${index}/${total} 块${label}未完成】${error.message.replaceAll('翻译', label)}${partial}`);
+                if (this._translationStatus) {
+                    this._translationStatus.visible = true;
+                    this._translationStatus.set_text(`${label}未完成：已完成 ${done.length}/${total} 块，请重试`);
+                }
+            }
+        } finally {
+            client.dispose();
+            this._finishRequest(request);
+        }
+    }
+
+    async _runTranslation(request, payload, source, endpoint) {
+        const client = new TextClient(this._soupSession, endpoint, this._settings.get_string('api-key'));
+        const completed = [];
+        let plan = null;
+        try {
+            plan = translationPlan(source, this._settings.get_int('translation-chunk-limit') || 1400);
+            if (!plan.parts.length)
+                throw new Error('没有可翻译的原文。');
+            // All paragraph/sentence cuts were preflighted before the first API call.
+            const oversizeNote = plan.oversizedSentences ?
+                ` · ${plan.oversizedSentences} 个超限长句保留完整` : '';
+            for (let index = 0; index < plan.parts.length; index++) {
+                if (!this._requestIsCurrent(request))
+                    return;
+                if (this._translationStatus) {
+                    this._translationStatus.visible = plan.parts.length > 1;
+                    this._translationStatus.set_text(`正在翻译 ${index + 1}/${plan.parts.length} 块 · 原文 ${plan.paragraphs} 段${oversizeNote}`);
+                }
+                const part = plan.parts[index];
+                const result = await client.complete({...payload, messages: [
+                    {role: 'system', content: translationPrompt(payload.messages[0].content, index, plan.parts.length)},
+                    {role: 'user', content: part.source},
+                ]}, {cancellable: request.cancellable,
+                    showThoughts: this._settings.get_boolean('enable-think'),
+                    onText: text => {
+                        if (this._requestIsCurrent(request)) {
+                            this._rawResponseText = translatedText(plan, completed, text);
+                            this._setResultText(this._rawResponseText);
+                            this._scrollToBottom();
+                        }
+                    }});
+                if (!this._requestIsCurrent(request))
+                    return;
+                completed.push(result.text);
+                this._rawResponseText = translatedText(plan, completed);
+                this._setResultText(this._rawResponseText);
+                this._scrollToBottom();
+                log(`[PopupLLM Translation] part=${index + 1}/${plan.parts.length} source-chars=${part.source.length} bytes=${result.bytes} frames=${result.frames} finish=${result.finishReason}`);
+            }
+            if (this._translationStatus)
+                this._translationStatus.set_text(`翻译完成 ${completed.length}/${plan.parts.length} 块 · 原文 ${plan.paragraphs} 段${oversizeNote}`);
+        } catch (error) {
+            if (this._requestIsCurrent(request)) {
+                const index = completed.length + 1;
+                const total = plan?.parts.length || 1;
+                const code = error.translationCode || 'PLAN_FAILED';
+                log(`[PopupLLM Translation] failed part=${index}/${total} completed=${completed.length} code=${code}`);
+                const prefix = plan ? translatedText(plan, completed) : '';
+                const partial = error.partialText ? `\n本段尚未确认的部分结果：\n${error.partialText}` : '';
+                this._setResultText(`${prefix}${prefix ? '\n\n' : ''}【第 ${index}/${total} 段未完成】${error.message}${partial}`);
+                if (this._translationStatus) {
+                    this._translationStatus.visible = true;
+                    this._translationStatus.set_text(`翻译未完成：已完成 ${completed.length}/${total} 块，请重试`);
+                }
+            }
+        } finally {
+            client.dispose();
             this._finishRequest(request);
         }
     }
@@ -1084,6 +1471,10 @@ export class ResultWindow {
         const window = this._resultWindow;
         if (!window)
             return;
+        if (this._resizeState) {
+            this._resizeState.scrollPending = true;
+            return;
+        }
         if (this._selectionState) {
             this._selectionState.scrollPending = true;
             return;
@@ -1451,10 +1842,11 @@ export class ResultWindow {
         this._copyResetId = id;
     }
 
-    _closeUI({actorDestroyed = false} = {}) {
-        if (this._closed)
+    _closeUI({actorDestroyed = false, force = false} = {}) {
+        if (this._closed || (this._pinned && !actorDestroyed && !force))
             return;
         this._closed = true;
+        this._endPopupResize({commit: false});
         this._endPopupDrag({commit: false});
         this._clearOutputSelection({flush: false});
         this._cancelResultPosition();
@@ -1462,6 +1854,11 @@ export class ResultWindow {
         this._copyIntent = null;
         this._copyButtons.clear();
         this._outputLabels.clear();
+        this._fontLabels.clear();
+        if (this._fontSettingsId) {
+            this._settings.disconnect?.(this._fontSettingsId);
+            this._fontSettingsId = 0;
+        }
         if (this._copyResetId) {
             GLib.source_remove(this._copyResetId);
             this._copyResetId = 0;
@@ -1471,6 +1868,11 @@ export class ResultWindow {
         this._resultContainer = null;
         this._resultWindow = null;
         this._resultLabel = null;
+        this._translationStatus = null;
+        this._pinButton = null;
+        this._closeButton = null;
+        this._pinned = false;
+        this._manualResultSize = null;
         this._ocrImage = null;
         this._ocrPreview?.dispose();
         this._ocrPreview = null;

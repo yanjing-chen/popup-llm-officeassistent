@@ -52,6 +52,8 @@ export class Widget {
     remove_css_class() {}
     set_default_size() {}
     set_sensitive(value) { this.sensitive = value; }
+    set_reactive(value) { this.reactive = value; }
+    set_can_focus(value) { this.can_focus = value; }
     set_visible(value) { this.visible = value; }
     set_label(value) { this.label = value; }
     set_subtitle(value) { this.subtitle = value; }
@@ -120,9 +122,11 @@ export class Widget {
     remove_transition(name) { (this.removedTransitions ||= []).push(name); }
     queue_redraw() { this.redraws = (this.redraws || 0) + 1; }
     set_width(value) { this.width = value; }
+    set_height(value) { this.height = value; }
     set_style(value) { this.style = value; }
     get_style() { return this.style; }
     set_child(value) { this.children = this.children.filter(child => child !== this.child); this.child = value; if (value) this.add_child(value); }
+    get_child() { return this.child || null; }
     get clutter_text() { if (!this._clutterText) { this._clutterText = new Widget({text: this.text}); this._clutterText.parent = this; } return this._clutterText; }
     get_clutter_text() { return this.clutter_text; }
     set_y(value) { this.y = value; }
@@ -145,6 +149,9 @@ export function settings() {
     const values = new Map([
         ['popup-mode', 'auto'], ['popup-shortcut', ['<Super>t']], ['icon-size', 24],
         ['auto-close-time', 5], ['model-idle-time', 60], ['temperature', 0.3],
+        ['result-font-size', 11],
+        ['translation-chunk-limit', 1400], ['explain-chunk-limit', 1400],
+        ['polish-chunk-limit', 1400], ['independent-chunk-limits-initialized', false],
         ['api-url', 'http://localhost:11434/v1/chat/completions'], ['api-key', ''],
         ['target-lang', 'zh'], ['enable-stream', false], ['enable-think', true],
         ['enable-ocr', false], ['model-name-ocr', ''], ['system-prompt-ocr', 'OCR:'],
@@ -153,10 +160,14 @@ export function settings() {
         values.set(`model-name${suffix}`, 'old-model'); values.set(`system-prompt${suffix}`, 'prompt');
     }
     const writes = [];
-    const result = {values, writes};
+    const userValues = new Set();
+    const result = {values, writes, userValues,
+        get_user_value: key => userValues.has(key) ? {unpack: () => values.get(key)} : null};
     for (const type of ['string', 'strv', 'int', 'double', 'boolean']) {
         result[`get_${type}`] = key => values.get(key) ?? (type === 'boolean' ? true : '');
-        result[`set_${type}`] = (key, value) => { writes.push([key, value]); values.set(key, value); };
+        result[`set_${type}`] = (key, value) => {
+            writes.push([key, value]); values.set(key, value); userValues.add(key);
+        };
     }
     return result;
 }

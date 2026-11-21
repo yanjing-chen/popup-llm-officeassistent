@@ -15,13 +15,14 @@ TOOLS = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(TOOLS)
 REAL_GIT = shutil.which('git')
 URL = 'https://github.com/yanjing-chen/popup-llm-officeassistent.git'
+RELEASE_TAG = f'v{TOOLS.version()}'
 
 
 class DistributionTests(unittest.TestCase):
     def test_complete_source_and_precompiled_archive(self):
         with tempfile.TemporaryDirectory(prefix='popup-package-test-') as name:
             output = Path(name)
-            copy_zip, source_zip = TOOLS.build(output, 'v2.2.4')
+            copy_zip, source_zip = TOOLS.build(output, RELEASE_TAG)
             with zipfile.ZipFile(copy_zip) as archive:
                 self.assertIn(TOOLS.UUID + '/schemas/gschemas.compiled', archive.namelist())
                 self.assertIn(TOOLS.UUID + '/extension.js', archive.namelist())
@@ -113,7 +114,8 @@ shutil.copyfile(pathlib.Path(os.environ['TEST_ASSETS'], asset), output)
         self.assertNotIn('--clobber', workflow)
 
 
-@unittest.skipUnless(REAL_GIT, 'Git is required for isolated publication tests')
+@unittest.skipUnless(REAL_GIT and shutil.which('gsettings') and shutil.which('glib-compile-schemas'),
+                     'Git, gsettings and glib-compile-schemas are required for isolated publication tests')
 class LocalPublishTests(unittest.TestCase):
     def setUp(self):
         self.temporary = tempfile.TemporaryDirectory(prefix='popup-local-publish-test-')
@@ -164,7 +166,7 @@ os.execv(real, [real, *a])
     def git(self, *args, check=True):
         return subprocess.run([REAL_GIT, *args], env=self.env, capture_output=True, text=True, check=check)
 
-    def seed(self, extra=False, tagged=False):
+    def seed(self, extra=False, tagged=False, tag=None):
         seed = self.root / 'seed'
         self.git('clone', str(self.remote), str(seed))
         self.git('-C', str(seed), 'config', 'user.name', 'Seed test')
@@ -175,8 +177,9 @@ os.execv(real, [real, *a])
         self.git('-C', str(seed), 'commit', '--allow-empty', '-m', 'Cleared main')
         self.git('-C', str(seed), 'push', 'origin', 'main')
         if tagged:
-            self.git('-C', str(seed), 'tag', 'v2.2.4')
-            self.git('-C', str(seed), 'push', 'origin', 'v2.2.4')
+            tag = tag or RELEASE_TAG
+            self.git('-C', str(seed), 'tag', tag)
+            self.git('-C', str(seed), 'push', 'origin', tag)
         return self.git('--git-dir', str(self.remote), 'rev-parse', 'main').stdout.strip()
 
     def publish(self, **extra):
@@ -192,7 +195,7 @@ os.execv(real, [real, *a])
         self.git('--git-dir', str(self.remote), 'merge-base', '--is-ancestor', original, 'main')
         self.assertEqual(self.git('--git-dir', str(self.remote), 'rev-list', '--count', 'main').stdout.strip(), '2')
         self.assertEqual(self.git('--git-dir', str(self.remote), 'rev-parse', 'main').stdout,
-                         self.git('--git-dir', str(self.remote), 'rev-parse', 'v2.2.4^{}').stdout)
+                         self.git('--git-dir', str(self.remote), 'rev-parse', f'{RELEASE_TAG}^{{}}').stdout)
         files = self.git('--git-dir', str(self.remote), 'ls-tree', '-r', '--name-only', 'main').stdout
         self.assertIn('.github/workflows/release.yml', files)
         self.assertIn(TOOLS.UUID + '/schemas/gschemas.compiled', files)
@@ -217,8 +220,19 @@ os.execv(real, [real, *a])
         original = self.seed(tagged=True)
         result = self.publish()
         self.assertNotEqual(result.returncode, 0)
-        self.assertEqual(self.git('--git-dir', str(self.remote), 'rev-parse', 'v2.2.4').stdout.strip(), original)
+        self.assertIn(f'远端已有 {RELEASE_TAG}', result.stderr)
+        self.assertEqual(self.git('--git-dir', str(self.remote), 'rev-parse', RELEASE_TAG).stdout.strip(), original)
         self.assertEqual(self.git('--git-dir', str(self.remote), 'rev-parse', 'main').stdout.strip(), original)
+
+    def test_older_tag_is_preserved_when_publishing_new_version(self):
+        original = self.seed(tagged=True, tag='v2.3.2')
+        result = self.publish()
+        self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
+        self.assertEqual(
+            self.git('--git-dir', str(self.remote), 'rev-parse', 'v2.3.2').stdout.strip(), original)
+        main = self.git('--git-dir', str(self.remote), 'rev-parse', 'main').stdout.strip()
+        released = self.git('--git-dir', str(self.remote), 'rev-parse', f'{RELEASE_TAG}^{{}}').stdout.strip()
+        self.assertEqual(released, main)
 
     def test_permission_rejection_does_not_trigger_force_retry(self):
         original = self.seed()

@@ -3,7 +3,8 @@
 支持 GNOME Shell 45–51。扩展 UUID：
 `popup-llm-officeassistent@yanjing_chen@qq.com`
 
-2.2.4 修正渲染缩放下的跨行拖选偏差，保留已解决的中文末字选取；翻译和 OCR 等结果窗均适用。
+2.3.6：结果弹窗左上角新增图钉。固定后禁止关闭、Esc 关闭、拖动、边缘缩放以及自动位置调整，解除固定后恢复；禁用扩展时仍可安全清理。
+2.3.5 将翻译、解释、润色的字符软上限拆成三个独立的 Adw.SpinRow 数字设置（各功能展开项下；升级继承旧上限值）。2.3.4 新增润色和解释的整章预判与分块、通用输出异常检测，并把字符上限改为与模型发散度一致的 Adw.SpinRow 数字设置。2.3.3 增加整章预判与仅在完整句末切分（整句绝不拆词），保留 2.3.1 的字符软上限设置及 2.3.0 的结果弹框缩放和字号设置，保留中文末字与渲染比例下的选区修正。
 保留 2.2.2 的首次快捷键、OCR 响应解码及等比例预览，原生截图 OCR 面向 GNOME 49–51。
 45–48 保留原有六项文字功能，不宣称新 OCR 已在旧版本验证。
 
@@ -47,6 +48,21 @@ gnome-extensions prefs 'popup-llm-officeassistent@yanjing_chen@qq.com'
 此 ZIP 是“复制安装包”，不是 metadata.json 位于 ZIP 根目录的 `.shell-extension.zip`；
 不要将它交给 `gnome-extensions install`。
 
+## 图钉固定弹窗（2.3.6）
+
+每个结果弹窗左上角有图钉：点击后变蓝，关闭按钮变灰，Esc 不会关闭它，标题栏无法拖动，边缘拖动缩放及内容增长时的自动位置修正均被锁定。此时仍可选取、复制文本、继续翻译及滚动内容。再次点击图钉解除固定，才能关闭或移动弹窗。每个弹窗分别固定；新弹窗默认不固定。关闭 GNOME Shell 扩展或重新登录属于强制释放，会照常清理弹窗，图钉不是操作系统层面的永久窗口锁。
+
+## 调整弹框尺寸和字体
+
+鼠标移到弹框边缘或四角，按住左键拖拉改变宽高；标题栏仍用于移动，正文仍可划选与按需复制。
+窗口尺寸各自独立，在当前窗口中保持；新窗口沿用上次手动调整的尺寸。
+设置 → 界面视觉设置 → 结果文字大小：8–32 pt，默认 11 pt；字号保存并对已打开结果即时生效。
+标题、按钮及系统字体不变。OCR 缩略图仍等比显示，识别仍使用原始截图。
+
+长文翻译、润色、解释分别按自己的数字框软上限，在请求前一次性预判所有段落与完整句末：段落不超当前功能上限就整段发送；超限只在句末分块，单句超限仍完整发送。不同段落保留原换行，同段落子块不新增换行；空译文和异常响应会标出块号而不是跳过。
+进度不进入复制内容，整次翻译共享同一模型租用；更多请求会增加提示词开销。
+它不能代替人工语义校对。如仍漏译，运行安装目录内 bash diagnose-translation.sh，并提供脱敏原文与缺译位置。
+
 ## 模型连接
 
 自行启动 Ollama 或兼容接口，准备实际模型。在设置中填写 API 地址，
@@ -82,7 +98,7 @@ bash "${XDG_DATA_HOME:-$HOME/.local/share}/gnome-shell/extensions/popup-llm-offi
 ```
 
 它不截图、不读取 API 密钥/提示词、不修改设置。安装后必须注销重登，日志中应出现
-Loaded build=2.2.4-selection-render-scale-fix，不能只看磁盘上 metadata 的版本。
+Loaded build=2.3.6-pin-lock，不能只看磁盘上 metadata 的版本。
 文字选择时还可看到 selection resource-scale=数值，仅记录比例，不记录文字。
 
 ## English
@@ -94,5 +110,5 @@ no build tools, Python or Node.js are required to install or run the extension.
 Save your work, log out and log back in, enable the extension, then configure
 your own model backend and select real available models in Preferences.
 Use install.sh for upgrades so that the old version is backed up first.
-Native screenshot OCR in 2.2.4 targets GNOME 49–51 and an existing local Ollama
+Native screenshot OCR in 2.3.0 targets GNOME 49–51 and an existing local Ollama
 PaddleOCR-VL model. No language selector or additional OCR runtime is installed.

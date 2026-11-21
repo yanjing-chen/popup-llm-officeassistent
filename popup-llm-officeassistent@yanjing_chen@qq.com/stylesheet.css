@@ -50,17 +50,23 @@
     color: #e0e0e0;
 }
 
+.translator-translation-status { font-size: 10pt; color: #b8c8de; margin-bottom: 5px; }
+
 /* ======== 智能问答对话层独有对齐样式 ======== */
 .qa-chat-user { text-align: right; color: #3584e4; font-weight: bold; font-size: 10.5pt; margin-bottom: 6px; }
 .qa-chat-llm { text-align: right; color: #e0e0e0; font-size: 11pt; line-height: 1.6; margin-bottom: 12px; }
 
 /* ======== 顶部按钮区域 ======== */
-.translator-close-btn, .translator-copy-btn {
+.translator-close-btn, .translator-copy-btn, .translator-pin-btn {
     background-color: rgba(255,255,255,0.1);
     border-radius: 99px;
     padding: 4px;
     transition-duration: 100ms;
 }
+/* A selected pin stays highlighted until the user clicks it again. */
+.translator-pin-btn:hover { background-color: rgba(53,132,228,0.25); }
+.translator-pin-btn:checked { background-color: #3584e4; color: #ffffff; }
+.translator-close-btn:locked { opacity: 0.3; }
 .translator-close-btn:hover { background-color: #e01b24; color: white; }
 .translator-drag-handle { padding: 6px 8px; min-height: 24px; border-radius: 6px; }
 .translator-drag-handle:hover { background-color: rgba(255,255,255,0.06); }

@@ -17,8 +17,13 @@ ROOT = Path(__file__).resolve().parents[1]
 UUID = 'popup-llm-officeassistent@yanjing_chen@qq.com'
 SCHEMA = 'org.gnome.shell.extensions.popup-llm-officeassistent'
 COPY_ASSET = 'popup-llm-officeassistent-precompiled.zip'
+# Only use the shipped compiled schema when the XML is *identical* to the
+# verified 2.3.5 precompiled schema. This supports offline packaging; on GNOME
+# developer machines a fresh compile and runtime check remain mandatory.
+PINNED_XML_SHA256 = '04ff24b56a95d6a17fc82de7deedf85ee7858b801d724e6bfe7ba63d1d88a78f'
+PINNED_COMPILED_SHA256 = 'bbb20b78b5931a5331c25d6bbf7ef1ab172d746b1f7c5f0cfcca890194cbf9df'
 ROOT_FILES = ('.gitignore', '.gitattributes', 'README.md', 'RELEASE_NOTES.md',
-              'install.sh', 'verify.sh', 'diagnose-selection.sh', 'diagnose-ocr.sh')
+              'install.sh', 'verify.sh', 'diagnose-selection.sh', 'diagnose-ocr.sh', 'diagnose-translation.sh')
 SOURCE_DIRS = (UUID, 'tests', 'scripts', 'docs', '.github/workflows')
 
 
@@ -100,8 +105,13 @@ def build(output_dir: Path, tag: str | None = None) -> list[Path]:
     release_version = version()
     if tag is not None and tag != f'v{release_version}':
         raise ValueError(f'Tag {tag!r} does not match v{release_version}')
-    if not shutil.which('glib-compile-schemas') or not shutil.which('gsettings'):
-        raise ValueError('Developer packaging requires glib-compile-schemas and gsettings')
+    can_compile = bool(shutil.which('glib-compile-schemas') and shutil.which('gsettings'))
+    if not can_compile:
+        schema_dir = ROOT / UUID / 'schemas'
+        xml = schema_dir / (SCHEMA + '.gschema.xml')
+        compiled = schema_dir / 'gschemas.compiled'
+        if digest(xml) != PINNED_XML_SHA256 or digest(compiled) != PINNED_COMPILED_SHA256:
+            raise ValueError('No compiler available and schema differs from verified precompiled baseline')
     output_dir = output_dir.resolve()
     if output_dir == ROOT or (ROOT / UUID) in (output_dir, *output_dir.parents):
         raise ValueError('Output must not overwrite the source or extension directory')
@@ -112,12 +122,16 @@ def build(output_dir: Path, tag: str | None = None) -> list[Path]:
         staging = Path(staging_name)
         shutil.copytree(ROOT / UUID, staging / UUID)
         schema_dir = staging / UUID / 'schemas'
-        subprocess.run(['glib-compile-schemas', '--strict', str(schema_dir)], check=True)
-        subprocess.run(['gsettings', '--schemadir', str(schema_dir), 'list-keys', SCHEMA],
-                       env={**os.environ, 'GSETTINGS_BACKEND': 'memory'}, check=True,
-                       stdout=subprocess.DEVNULL)
+        if can_compile:
+            subprocess.run(['glib-compile-schemas', '--strict', str(schema_dir)], check=True)
+            subprocess.run(['gsettings', '--schemadir', str(schema_dir), 'list-keys', SCHEMA],
+                           env={**os.environ, 'GSETTINGS_BACKEND': 'memory'}, check=True,
+                           stdout=subprocess.DEVNULL)
+        # Without build tools, identical trusted precompiled schema is staged
+        # byte-for-byte; users still need no compiler at installation time.
         shutil.copy2(ROOT / 'install.sh', staging / 'install.sh')
         shutil.copy2(ROOT / 'diagnose-ocr.sh', staging / 'diagnose-ocr.sh')
+        shutil.copy2(ROOT / 'diagnose-translation.sh', staging / 'diagnose-translation.sh')
         shutil.copy2(ROOT / 'docs/INSTALL.md', staging / 'README.md')
         runtime_files = {path.relative_to(staging).as_posix(): path
                          for path in staging.rglob('*') if path.is_file()}

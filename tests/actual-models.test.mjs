@@ -180,7 +180,7 @@ test('the exact selected backend model ID is sent unchanged, including repositor
     assert.equal(f.requests[0].message.payload.model, actual[0].id);
 });
 
-test('compiled shipped schema contains no example model defaults and rejects -1 for model idle time', () => {
+test('compiled shipped schema contains no example model defaults and rejects -1 for model idle time', {skip: spawnSync('gsettings', ['--version']).error ? 'host has no gsettings' : false}, () => {
     const dir = fileURLToPath(new URL('../popup-llm-officeassistent@yanjing_chen@qq.com/schemas/', import.meta.url));
     const schema = 'org.gnome.shell.extensions.popup-llm-officeassistent';
     const run = (...args) => spawnSync('gsettings', ['--schemadir', dir, ...args], {

@@ -4,7 +4,10 @@ GNOME Shell / Wayland 原生划词大模型助手。保留 GNOME 45–51 的六�
 
 仓库：[yanjing-chen/popup-llm-officeassistent](https://github.com/yanjing-chen/popup-llm-officeassistent) · [下载 Release](https://github.com/yanjing-chen/popup-llm-officeassistent/releases/latest) · [构建记录](https://github.com/yanjing-chen/popup-llm-officeassistent/actions)
 
-2.2.4 补齐文字渲染缩放换算，修正中文拖选时鼠标到第四行、选区仍落在第二行的偏差。
+2.3.6 发布测试修正版仅修复发布自测里的旧标签引用；插件功能与运行文件保持一致。
+
+2.3.6 新增结果弹窗左上角图钉，开启后锁定位置和边缘尺寸并阻止关闭，取消后恢复；每个弹窗分别控制。2.3.5 在 2.3.4 基础上将翻译、解释、润色的单块字符软上限拆成三个独立数字框（300–12000），升级时继承原共用值，随后各自保存。2.3.4 扩展润色／解释的长文本处理和所有文字任务的输出超限检测。此前 2.3.3 改为“整段优先、超限仅按完整句末切分、整句绝不拆词”，并保留 2.3.1 可调字符上限及 2.3.0 弹框缩放和字号设置。
+保留 2.2.4 的文字渲染缩放换算，修正中文拖选时鼠标到第四行、选区仍落在第二行的偏差。
 保留 2.2.3 已获用户确认的中文末字修正，翻译和 OCR 等结果窗统一生效；西文 ASCII 路径不变。
 不更改系统缩放设置或提高轮询频率。截图、OCR 识别和等比例预览仍沿用用户已确认成功的 2.2.2。
 
@@ -19,6 +22,32 @@ GNOME Shell / Wayland 原生划词大模型助手。保留 GNOME 45–51 的六�
 - 结果窗口可拖动，多轮结果独立保留；正文选区、按需复制及选中片段二次处理。
 - 流式输出、连续问答、翻译目标语言/风格、解释类别和润色风格。
 - 支持已确认协议的后端空闲卸载，0–86400 秒，默认 60 秒；不删除模型文件。
+
+## 长文本翻译、缩放与字号（2.3.5）
+
+- 翻译、润色、解释各有独立的“单块字符软上限”数字框（默认 1400，300–12000，步进 100），分别在对应功能的展开设置中。升级时首次复制旧共用值，此后互不影响。
+- 翻译按原文段落顺序逐段请求；超长段落仅按完整句末切分。单句本身超出设置值时保持整句完整发送，**不按词语边界切分**。
+  发送前核对所有原文片段可以无损拼回原文，不截掉中间内容，不合并重复段落。
+- 每段保留目标语言、风格、实际模型、温度与流式开关；只有返回有效译文且正常结束才进入下一段。
+  进度显示在译文外，不进入复制文本。请求数会增加；模型空闲释放从整次翻译结束/取消后计算。
+- 空译文、损坏的 SSE/JSON、未确认结束及模型输出限制都会标明具体段号，保留已完成译文并停止，不跳过后显示“完成”。
+- 这是完整性防护，不是语义校对器；模型仍可能在单段内部漏译或误译。此处没有对应用户原文及后端原始响应，
+  不能断言历史漏译完全来自模型或完全来自网络。可用下方只读诊断核对分段状态。
+- 将鼠标放在结果弹框边缘或四角，按住左键拖拉即可改变宽度、高度。标题栏仍用于移动，正文仍用于选取。
+  每个弹框尺寸独立；调整后不会被后续译文重置，新窗口沿用上次手动调整的尺寸。
+- 设置 → “界面视觉设置” → **结果文字大小**，范围 **8–32 pt**，默认 **11 pt**。
+  翻译、OCR、解释、润色、邮件及问答消息即时更新；标题和操作按钮保持原大小。字号保存供以后使用。
+- 保留稳定的蓝色选区、按需复制、二次弹窗、无阴影拖动和原生 OCR。OCR 缩略图随可用宽度等比缩小，不修改原图。
+
+如仍漏译，完成一次操作后运行：
+
+```bash
+bash "${XDG_DATA_HOME:-$HOME/.local/share}/gnome-shell/extensions/popup-llm-officeassistent@yanjing_chen@qq.com/diagnose-translation.sh"
+```
+
+只读取版本、开关、字号及分段数量/字节计数，不读取原文、译文、API 密钥或提示词，不修改设置。
+若日志全部分段完成但译文仍遗漏，请提供可公开或已脱敏的原文及缺译位置，核对模型的实际翻译内容。
+本轮自动测试不等同于 GNOME 51 显卡/缩放环境的实机验收；安装后必须注销重登。
 
 ## 安装要求
 
@@ -144,7 +173,7 @@ OCR 菜单与其他功能一样只显示当前后端的实际列表，不按 Pad
 ## Release 与开发
 
 - 推送 main / 提交 PR：运行回归检查并生成 Actions 构建产物。
-- 推送 `v2.2.4` 这类版本标签：检查成功后自动创建 GitHub Release，附免编译插件 ZIP、完整统一源码 ZIP、SHA256SUMS。
+- 推送 `v2.3.0` 这类版本标签：检查成功后自动创建 GitHub Release，附免编译插件 ZIP、完整统一源码 ZIP、SHA256SUMS。
 - 标签版本必须与 metadata.json 的 version-name 前缀一致；现有 Release/标签不会被脚本强行覆盖。
 - 构建工具只用于开发者，用户下载安装包无需参与构建。
 
@@ -166,7 +195,8 @@ OCR 诊断可执行包内 `bash diagnose-ocr.sh`，也可以直接运行安装�
 ## English quick start
 
 A GNOME Shell 45–51 Wayland-native selection assistant with translation, explanation,
-polishing, email, Q&A and custom prompts. Version 2.2.4 fixes render-scale-aware
+polishing, email, Q&A and custom prompts. Version 2.3.0 adds paragraph-by-paragraph translation with explicit failure reporting,
+edge/corner window resizing and a live 8–32 pt result font setting. It retains the 2.2.4 render-scale-aware
 selection tracking while preserving the accepted Chinese line-end correction
 and working native screenshot OCR from 2.2.2
 for GNOME 49–51, using an existing local Ollama PaddleOCR-VL model. GNOME 51 desktop

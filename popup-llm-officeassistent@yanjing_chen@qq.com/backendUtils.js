@@ -100,6 +100,21 @@ export function migrateModelIdleTime(settings) {
     return seconds;
 }
 
+// v2.3.5: The old shared limit remains translation's key. On the first run,
+// copy its effective value into the new per-feature keys, but never overwrite
+// an explicitly saved choice. A marker ensures later changes stay independent.
+export function migrateIndependentChunkLimits(settings) {
+    if (settings.get_boolean('independent-chunk-limits-initialized'))
+        return false;
+    const oldLimit = settings.get_int('translation-chunk-limit') || 1400;
+    for (const key of ['explain-chunk-limit', 'polish-chunk-limit']) {
+        if (!settings.get_user_value || settings.get_user_value(key) === null)
+            settings.set_int(key, oldLimit);
+    }
+    settings.set_boolean('independent-chunk-limits-initialized', true);
+    return true;
+}
+
 export function lmInstanceToUnload(catalog, model) {
     const row = catalog.models?.find(m => m.key === model ||
         m.loaded_instances?.some(instance => instance.id === model));

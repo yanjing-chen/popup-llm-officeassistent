@@ -24,6 +24,9 @@ test('installer stages and upgrades only the isolated XDG extension; old files r
     });
     assert.equal(run.status, 0, run.stderr + run.stdout);
     const prefs = readFileSync(join(target, 'prefs.js'), 'utf8');
+    const resultCode = readFileSync(join(target, 'resultWindow.js'), 'utf8');
+    assert.match(resultCode, /translator-pin-btn/);
+    assert.match(resultCode, /_setPinned\(/);
     assert.match(prefs, /Model Idle Timeout/);
     assert.match(prefs, /Adw.ComboRow/);
     const backups = join(data, 'popup-llm-officeassistent', 'backups');

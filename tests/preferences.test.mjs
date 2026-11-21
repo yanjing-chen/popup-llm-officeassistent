@@ -20,7 +20,7 @@ test('QA title always uses plain text markup mode', async () => {
 });
 test('idle row immediately follows icon auto-close row', async () => {
     const f = fixture(); await settle();
-    const group = f.byTitle('界面与交互 (Appearance & Interaction)');
+    const group = f.byTitle('界面视觉设置');
     const index = group.children.findIndex(w => w.title === '图标自动关闭时间 (Auto-close Time)');
     assert.equal(group.children[index + 1], f.idle());
 });

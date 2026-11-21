@@ -10,7 +10,7 @@ import {Extension} from 'resource:///org/gnome/shell/extensions/extension.js';
 import * as Config from 'resource:///org/gnome/shell/misc/config.js';
 import {ModelBackend} from './modelBackend.js';
 import {IdleModels} from './idleModels.js';
-import {clampPopupPosition, migrateModelIdleTime} from './backendUtils.js';
+import {clampPopupPosition, migrateModelIdleTime, migrateIndependentChunkLimits} from './backendUtils.js';
 import {ResultWindow} from './resultWindow.js';
 import {NativeScreenshot} from './nativeScreenshot.js';
 
@@ -19,6 +19,7 @@ export default class PopupLLMOfficeAssistent extends Extension {
         this._generation = (this._generation || 0) + 1;
         this._settings = this.getSettings();
         migrateModelIdleTime(this._settings);
+        migrateIndependentChunkLimits(this._settings);
         this._lastText = null;
         this._ownerChangedId = null;
         this._windows = new Set();
@@ -73,7 +74,7 @@ export default class PopupLLMOfficeAssistent extends Extension {
         });
         // One version-only runtime marker distinguishes loaded JS modules from
         // files that were replaced on disk without starting a new Shell session.
-        log(`[PopupLLM] Loaded build=2.2.4-selection-render-scale-fix shell=${Config.PACKAGE_VERSION}`);
+        log(`[PopupLLM] Loaded build=2.3.6-pin-lock shell=${Config.PACKAGE_VERSION}`);
     }
 
     disable() {
@@ -104,7 +105,7 @@ export default class PopupLLMOfficeAssistent extends Extension {
             global.stage.disconnect(this._escEventId);
             this._escEventId = null;
         }
-        this._closeUI();
+        this._closeUI({force: true});
         this._idleModels?.dispose();
         this._idleModels = null;
         this._modelBackend?.dispose();
@@ -451,6 +452,7 @@ export default class PopupLLMOfficeAssistent extends Extension {
         };
         try {
             for (const window of this._windows) {
+                window._endPopupResize();
                 window._endPopupDrag();
                 const actor = window._resultContainer;
                 if (actor) {
@@ -495,8 +497,10 @@ export default class PopupLLMOfficeAssistent extends Extension {
     _activateWindow(window) {
         if (!this._windows.has(window) || window._closed)
             return;
-        if (this._activeWindow && this._activeWindow !== window)
+        if (this._activeWindow && this._activeWindow !== window) {
+            this._activeWindow._endPopupResize();
             this._activeWindow._endPopupDrag();
+        }
         this._windows.delete(window);
         this._windows.add(window);
         this._activeWindow = window;
@@ -528,11 +532,17 @@ export default class PopupLLMOfficeAssistent extends Extension {
             return true;
         }
         if (window && !window._closed) {
+            if (window._resizeState) {
+                window._endPopupResize({commit: false});
+                return true;
+            }
             if (window._selectionState) {
                 window._clearOutputSelection();
                 return true;
             }
-            window._closeUI();
+            // While pinned, Esc is consumed but must never close the popup.
+            if (!window._pinned)
+                window._closeUI();
             return true;
         }
         return false;
@@ -541,19 +551,20 @@ export default class PopupLLMOfficeAssistent extends Extension {
     _stopInteractions() {
         this._closePopupIcon();
         for (const window of this._windows) {
+            window._endPopupResize();
             window._endPopupDrag();
             window._clearOutputSelection();
         }
     }
 
-    _closeUI() {
+    _closeUI({force = false} = {}) {
         this._closePopupIcon();
         if (this._selectionCheckId) {
             GLib.source_remove(this._selectionCheckId);
             this._selectionCheckId = 0;
         }
         for (const window of [...(this._windows || [])])
-            window._closeUI();
+            window._closeUI({force});
         this._activeWindow = null;
         this._lastText = null;
     }

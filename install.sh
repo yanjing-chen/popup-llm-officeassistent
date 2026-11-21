@@ -28,7 +28,7 @@ for command_name in cp mv mkdir mktemp sha256sum gsettings; do
         exit 1
     fi
 done
-for source_name in metadata.json prefs.js extension.js resultWindow.js textSelection.js frameLoop.js backendUtils.js modelBackend.js idleModels.js nativeScreenshot.js ocrClient.js ocrPreview.js ocrUtils.js diagnose-ocr.sh stylesheet.css; do
+for source_name in metadata.json prefs.js extension.js resultWindow.js translation.js textClient.js textSelection.js frameLoop.js backendUtils.js modelBackend.js idleModels.js nativeScreenshot.js ocrClient.js ocrPreview.js ocrUtils.js diagnose-ocr.sh stylesheet.css; do
     if [ ! -f "$SOURCE_DIR/$source_name" ]; then
         echo "源码不完整，缺少：$source_name" >&2
         exit 1
@@ -58,7 +58,13 @@ GSETTINGS_BACKEND=memory gsettings --schemadir "$STAGE_DIR/$EXT_UUID/schemas" \
 GSETTINGS_BACKEND=memory gsettings --schemadir "$STAGE_DIR/$EXT_UUID/schemas" \
     range org.gnome.shell.extensions.popup-llm-officeassistent enable-ocr >/dev/null
 GSETTINGS_BACKEND=memory gsettings --schemadir "$STAGE_DIR/$EXT_UUID/schemas" \
+    range org.gnome.shell.extensions.popup-llm-officeassistent result-font-size >/dev/null
+GSETTINGS_BACKEND=memory gsettings --schemadir "$STAGE_DIR/$EXT_UUID/schemas" \
     range org.gnome.shell.extensions.popup-llm-officeassistent system-prompt-ocr >/dev/null
+for key in translation-chunk-limit explain-chunk-limit polish-chunk-limit independent-chunk-limits-initialized; do
+    GSETTINGS_BACKEND=memory gsettings --schemadir "$STAGE_DIR/$EXT_UUID/schemas" \
+        range org.gnome.shell.extensions.popup-llm-officeassistent "$key" >/dev/null
+done
 
 HAD_OLD=0
 INSTALLED_NEW=0
@@ -101,9 +107,13 @@ chmod -R u+rwX,go+rX "$TARGET_DIR"
 test -f "$TARGET_DIR/schemas/gschemas.compiled"
 grep -Fq 'Model Idle Timeout' "$TARGET_DIR/prefs.js"
 grep -Fq 'translator-drag-handle' "$TARGET_DIR/resultWindow.js"
+grep -Fq 'translator-pin-btn' "$TARGET_DIR/resultWindow.js"
+grep -Fq '_setPinned(' "$TARGET_DIR/resultWindow.js"
 grep -Fq 'actor.set_translation' "$TARGET_DIR/resultWindow.js"
 grep -Fq 'Clutter.OffscreenRedirect.ALWAYS' "$TARGET_DIR/resultWindow.js"
 grep -Fq '_makeOutputSelectable' "$TARGET_DIR/resultWindow.js"
+grep -Fq 'resultFontStyle(' "$TARGET_DIR/resultWindow.js"
+grep -Fq 'resultFontStyle(' "$TARGET_DIR/popupGeometry.js"
 grep -Fq '_beginOutputSelection' "$TARGET_DIR/resultWindow.js"
 grep -Fq 'global.stage.get_event_actor(event)' "$TARGET_DIR/resultWindow.js"
 grep -Fq 'Clutter.CursorType.TEXT' "$TARGET_DIR/resultWindow.js"
@@ -116,7 +126,7 @@ grep -Fq '_raisePopupIcon' "$TARGET_DIR/extension.js"
 trap - ERR
 rmdir -- "$STAGE_DIR" 2>/dev/null || true
 
-echo '已安装 Popup LLM Office Assistent 2.2.4（文字选区渲染缩放修正，保留中文末字与 OCR）。'
+echo '已安装 Popup LLM Office Assistent 2.3.6（结果弹窗左上角可固定位置并保护关闭；其他功能保留）。'
 echo "安装路径：$TARGET_DIR"
 if [ "$RECOMPILE_SCHEMAS" -eq 0 ]; then echo '已使用包内预编译 schema，本次未执行编译。'; fi
 if [ "$HAD_OLD" -eq 1 ]; then
@@ -124,7 +134,8 @@ if [ "$HAD_OLD" -eq 1 ]; then
 else
     rmdir -- "$BACKUP_DIR" 2>/dev/null || true
 fi
-echo '原有其他配置未重置。旧 -1 模型时间迁移为 60 秒；成功识别列表后清除不存在的模型选择。'
+echo '原有字体大小等配置未重置。新版本会正确生成结果文字的 CSS 字号声明。'
+echo '旧 -1 模型时间迁移为 60 秒；成功识别列表后清除不存在的模型选择。'
 if command -v gnome-extensions >/dev/null 2>&1; then
     if ! gnome-extensions enable "$EXT_UUID"; then
         echo '当前会话尚未识别新扩展。请注销登录后在“扩展管理器”中启用。'

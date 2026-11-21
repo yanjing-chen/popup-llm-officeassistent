@@ -98,7 +98,7 @@ for (const value of ['', '连接失败：服务不可用', 'final answer']) {
 
 test('non-stream QA completion updates history and unload lease before visual thaw', async () => {
     const f = open(); await f.extension._callLLMAPI('', 'qa');
-    const before = f.label.text; f.press(); f.reply(0, '完整回答');
+    const before = f.label.text; f.press(); f.reply(0, '完整回答'); await settle();
     assert.equal(f.label.text, before);
     assert.equal(f.extension._lastLLMResponse, '完整回答');
     assert.equal(f.extension._qaHistory.at(-1).content, '完整回答');
@@ -121,8 +121,9 @@ test('SSE DONE received while held still finalizes full QA history and model lea
 test('API errors received while held are displayed on release, not lost', async () => {
     const f = open(); await f.extension._callLLMAPI('text', 'translate');
     const before = f.label.text; f.press(); f.requests[0].message.status_code = 503; f.reply(0);
+    await settle();
     assert.equal(f.label.text, before); assert.deepEqual(f.finishes, ['old-model']);
-    f.release(); assert.match(f.label.text, /HTTP Code: 503/); f.tick();
+    f.release(); assert.match(f.label.text, /HTTP 503/); f.tick();
 });
 
 test('automatic scrolling is coalesced, suspended on press, and resumes once on release', () => {

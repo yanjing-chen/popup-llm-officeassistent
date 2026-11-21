@@ -141,6 +141,7 @@ test('closing either window cannot abort or overwrite the other window request',
     assert.equal(f.requests[0].cancellable.cancelled, true);
     assert.ok(!f.requests[1].cancellable.cancelled); assert.equal(f.requests[1].session.aborted, undefined);
     f.reply(0, 'stale parent answer'); f.reply(1, 'live child answer');
+    await settle();
     assert.equal(child._resultLabel.text, 'live child answer');
     assert.deepEqual(f.finishes, ['old-model', 'old-model']);
     assert.equal(f.manager._windows.size, 1);
@@ -151,7 +152,7 @@ test('two simultaneous QA windows keep separate conversation history and copy st
     a._qaEntry.set_text('A question'); a._qaEntry.get_clutter_text().emit('activate');
     b._qaEntry.set_text('B question'); b._qaEntry.get_clutter_text().emit('activate');
     await settle();
-    f.reply(1, 'B answer'); f.reply(0, 'A answer');
+    f.reply(1, 'B answer'); f.reply(0, 'A answer'); await settle();
     assert.equal(a._lastLLMResponse, 'A answer'); assert.equal(b._lastLLMResponse, 'B answer');
     assert.equal(a._qaHistory.at(-1).content, 'A answer'); assert.equal(b._qaHistory.at(-1).content, 'B answer');
     assert.ok(!JSON.stringify(a._qaHistory).includes('B answer'));
@@ -165,9 +166,9 @@ test('shared model idle tracking waits until all result windows finish', async (
         unload: async model => unloaded.push(model)});
     f.manager._idleModels.setSeconds(0);
     await f.parent._callLLMAPI('a', 'translate'); await child._callLLMAPI('b', 'polish');
-    f.reply(0); for (const callback of timers.values()) callback(); await settle();
+    f.reply(0); await settle(); for (const callback of [...timers.values()]) callback(); await settle();
     assert.deepEqual(unloaded, []);
-    f.reply(1); for (const callback of [...timers.values()]) callback(); await settle();
+    f.reply(1); await settle(); for (const callback of [...timers.values()]) callback(); await settle();
     assert.deepEqual(unloaded, ['old-model']);
 });
 
@@ -183,7 +184,7 @@ test('disabling clears all selection/drag clocks, toolbars, requests and window 
 test('manager lifecycle disconnects global observers and stops gestures on lock/overview', () => {
     const f = fixture(); f.extension._closeUI(); f.manager.enable();
     const window = f.createWindow('source', 'translate');
-    const handle = window._resultContainer.children[0].children[0];
+    const handle = window._resultContainer.children[0].children[1];
     handle.emit('button-press-event', {get_button: () => 1, get_coords: () => [120, 180]});
     assert.equal(f.timelines.at(-1).running, true);
     f.main.sessionMode.isLocked = true; f.main.sessionMode.emit('updated');
@@ -203,7 +204,7 @@ test('changing API settings cancels all active windows without closing their con
 
 test('native frame tracking applies more than sixty pointer samples per second when frames arrive', () => {
     const f = open(); const actor = f.parent._resultContainer;
-    const handle = actor.children[0].children[0]; const start = {x: actor.x, y: actor.y};
+    const handle = actor.children[0].children[1]; const start = {x: actor.x, y: actor.y};
     f.pointer([start.x + 12, start.y + 12, 256]); handle.emit('button-press-event', {
         get_button: () => 1, get_coords: () => [start.x + 12, start.y + 12]});
     let writes = 0; const translation = actor.set_translation.bind(actor);
@@ -220,7 +221,7 @@ test('native frame tracking applies more than sixty pointer samples per second w
 
 test('native frame setup failure retains the known-working drag fallback and cleans up', () => {
     const f = open({nativeFrames: false}); const actor = f.parent._resultContainer;
-    actor.children[0].children[0].emit('button-press-event', {
+    actor.children[0].children[1].emit('button-press-event', {
         get_button: () => 1, get_coords: () => [actor.x + 12, actor.y + 12]});
     assert.equal([...f.sources.values()][0].ms, 16);
     f.pointer([600, 400, 256]); f.tick(); assert.notEqual(actor.translation_x, 0);
@@ -259,7 +260,7 @@ test('changing popup mode invalidates an outstanding automatic PRIMARY read', ()
 
 test('hiding a window stops a frame loop even if its actor frame clock stops advancing', () => {
     const f = open(); const actor = f.parent._resultContainer;
-    actor.children[0].children[0].emit('button-press-event', {
+    actor.children[0].children[1].emit('button-press-event', {
         get_button: () => 1, get_coords: () => [actor.x + 12, actor.y + 12]});
     assert.ok(f.timelines.at(-1).running);
     actor.visible = false; actor.emit('notify::visible');

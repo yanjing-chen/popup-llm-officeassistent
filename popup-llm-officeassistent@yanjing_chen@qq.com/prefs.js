@@ -4,12 +4,13 @@ import Gdk from 'gi://Gdk';
 import GLib from 'gi://GLib';
 import {ExtensionPreferences} from 'resource:///org/gnome/Shell/Extensions/js/extensions/prefs.js';
 import {ModelBackend} from './modelBackend.js';
-import {modelChoices, modelIdleSeconds, migrateModelIdleTime} from './backendUtils.js';
+import {modelChoices, modelIdleSeconds, migrateModelIdleTime, migrateIndependentChunkLimits} from './backendUtils.js';
 
 export default class PopupLLMOfficeAssistentPreferences extends ExtensionPreferences {
     fillPreferencesWindow(window) {
         const settings = this.getSettings();
         const initialModelIdle = migrateModelIdleTime(settings);
+        migrateIndependentChunkLimits(settings);
         let closed = false;
         let backend = null;
         let refreshTimer = 0;
@@ -188,6 +189,8 @@ export default class PopupLLMOfficeAssistentPreferences extends ExtensionPrefere
             iconName,
             modelKey,
             promptKey,
+            chunkLimitKey = null,
+            chunkLimitTitle = '',
         }) => {
             const enabled = settings.get_boolean(settingKey);
             const row = new Adw.ExpanderRow({
@@ -248,6 +251,26 @@ export default class PopupLLMOfficeAssistentPreferences extends ExtensionPrefere
 
             row.add_row(modelRow);
             row.add_row(promptRow);
+            if (chunkLimitKey) {
+                // Each long-form tool owns its own persisted soft limit.
+                // Match the native numeric presentation of Temperature.
+                const limit = new Adw.SpinRow({
+                    title: chunkLimitTitle,
+                    subtitle: '整段优先；过长仅按完整句末切分，单句不截断。不是 token 上限。',
+                    digits: 0,
+                    adjustment: new Gtk.Adjustment({
+                        lower: 300,
+                        upper: 12000,
+                        step_increment: 100,
+                        page_increment: 500,
+                        value: settings.get_int(chunkLimitKey) || 1400,
+                    }),
+                    use_markup: false,
+                });
+                limit.connect('notify::value', () =>
+                    settings.set_int(chunkLimitKey, Math.round(limit.get_value())));
+                row.add_row(limit);
+            }
             groupFeatures.add(row);
         };
 
@@ -258,6 +281,8 @@ export default class PopupLLMOfficeAssistentPreferences extends ExtensionPrefere
             iconName: 'preferences-desktop-locale-symbolic',
             modelKey: 'model-name',
             promptKey: 'system-prompt',
+            chunkLimitKey: 'translation-chunk-limit',
+            chunkLimitTitle: '翻译单块字符软上限',
         });
         createFeatureRow({
             settingKey: 'enable-explain',
@@ -266,6 +291,8 @@ export default class PopupLLMOfficeAssistentPreferences extends ExtensionPrefere
             iconName: 'accessories-dictionary-symbolic',
             modelKey: 'model-name-explain',
             promptKey: 'system-prompt-explain',
+            chunkLimitKey: 'explain-chunk-limit',
+            chunkLimitTitle: '解释单块字符软上限',
         });
         createFeatureRow({
             settingKey: 'enable-polish',
@@ -274,6 +301,8 @@ export default class PopupLLMOfficeAssistentPreferences extends ExtensionPrefere
             iconName: 'document-edit-symbolic',
             modelKey: 'model-name-polish',
             promptKey: 'system-prompt-polish',
+            chunkLimitKey: 'polish-chunk-limit',
+            chunkLimitTitle: '润色单块字符软上限',
         });
         createFeatureRow({
             settingKey: 'enable-mail',
@@ -354,8 +383,7 @@ export default class PopupLLMOfficeAssistentPreferences extends ExtensionPrefere
 
         // 界面与交互
         const groupUI = new Adw.PreferencesGroup({
-            title: '界面与交互 (Appearance & Interaction)',
-            description: '调整划词后悬浮图标的大小与自动关闭时间。',
+            title: '界面视觉设置',
         });
 
         const currentSize = settings.get_int('icon-size');
@@ -571,6 +599,18 @@ export default class PopupLLMOfficeAssistentPreferences extends ExtensionPrefere
         rowEnablePopup.connect('notify::active', toggleUIIconSensitivity);
         toggleUIIconSensitivity();
 
+        const rowResultFont = new Adw.SpinRow({
+            title: '结果文字大小 (Result Font Size)',
+            subtitle: '单位：磅 (pt)，8–32；翻译、OCR、问答等结果即时生效，标题和按钮不变',
+            adjustment: new Gtk.Adjustment({lower: 8, upper: 32, step_increment: 1,
+                value: settings.get_int('result-font-size')}),
+            use_markup: false,
+        });
+        addIcon(rowResultFont, 'preferences-desktop-font-symbolic');
+        rowResultFont.connect('notify::value', () => {
+            settings.set_int('result-font-size', Math.max(8, Math.min(32, Math.round(rowResultFont.get_value()))));
+        });
+        groupUI.add(rowResultFont);
         groupUI.add(rowSize);
         groupUI.add(rowSizePreview);
         groupUI.add(rowTimeout);

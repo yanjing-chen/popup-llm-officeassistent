@@ -43,7 +43,13 @@
     <key name="polish-custom-style" type="s"><default>''</default><summary>Custom Polish Style Requirement</summary></key>
 
     <key name="icon-size" type="i"><default>24</default><summary>Popup Icon Size</summary></key>
+    <key name="result-font-size" type="i"><range min="8" max="32"/><default>11</default><summary>Result text font size in points</summary></key>
     <key name="auto-close-time" type="i"><default>5</default><summary>Auto Close Time</summary></key>
     <key name="model-idle-time" type="i"><range min="0" max="86400"/><default>60</default><summary>Model idle unload time in seconds (0: after response, default: 60)</summary></key>
+    <key name="translation-chunk-limit" type="i"><range min="300" max="12000"/><default>1400</default><summary>Translation source characters per request (soft limit)</summary></key>
+    <key name="explain-chunk-limit" type="i"><range min="300" max="12000"/><default>1400</default><summary>Explanation source characters per request (soft limit)</summary></key>
+    <key name="polish-chunk-limit" type="i"><range min="300" max="12000"/><default>1400</default><summary>Polishing source characters per request (soft limit)</summary></key>
+    <key name="independent-chunk-limits-initialized" type="b"><default>false</default><summary>Per-feature chunk limits migrated from previous shared setting</summary></key>
+    <key name="saved-result-size" type="(ii)"><default>(0, 0)</default></key>
   </schema>
 </schemalist>

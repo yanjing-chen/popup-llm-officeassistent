@@ -20,12 +20,13 @@ function setup(options = {}) {
     return {...f, win};
 }
 
-test('OCR window has top copy/close, preview, text and only the bottom recognize button', () => {
+test('OCR window has pin/copy/close, preview, text and only the bottom recognize button', () => {
     const f = setup(), children = f.win._resultContainer.children;
     assert.equal(children.length, 4);
-    assert.equal(children[0].children.length, 3);
-    assert.match(children[0].children[1].style_class, /translator-copy-btn/);
-    assert.match(children[0].children[2].style_class, /translator-close-btn/);
+    assert.equal(children[0].children.length, 4);
+    assert.match(children[0].children[0].style_class, /translator-pin-btn/);
+    assert.match(children[0].children[2].style_class, /translator-copy-btn/);
+    assert.match(children[0].children[3].style_class, /translator-close-btn/);
     assert.match(children[1].style_class, /ocr-preview/);
     assert.equal(children[2], f.win._resultWindow);
     assert.equal(children[3], f.win._ocrRunButton);
@@ -208,7 +209,7 @@ test('OCR result reuses stable selection/top-copy/second-round processing withou
     const selected = f.win._getOutputSelection();
     assert.equal(selected, '需要润色的片段');
     assert.ok(f.manager._popupContainer);
-    f.win._resultContainer.children[0].children[1].emit('clicked');
+    f.win._resultContainer.children[0].children[2].emit('clicked');
     assert.equal(f.clipboardWrites.at(-1).text, selected);
     f.manager._showPopupIcon(selected, {window: f.win});
     f.manager._popupContainer.children[2].emit('clicked'); f.flushIdles();

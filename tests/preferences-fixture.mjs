@@ -1,10 +1,13 @@
-import {modelChoices, modelIdleSeconds, migrateModelIdleTime} from '../popup-llm-officeassistent@yanjing_chen@qq.com/backendUtils.js';
+import {modelChoices, modelIdleSeconds, migrateModelIdleTime, migrateIndependentChunkLimits} from '../popup-llm-officeassistent@yanjing_chen@qq.com/backendUtils.js';
 import {loadClass, Widget, settings} from './mocks.mjs';
 
 export function prefsFixture({kind = 'ollama', values = {}, result} = {}) {
     Widget.all = [];
     const config = settings();
-    for (const [key, value] of Object.entries(values)) config.values.set(key, value);
+    for (const [key, value] of Object.entries(values)) {
+        config.values.set(key, value);
+        config.userValues.add(key);
+    }
     const timers = new Map(); let timer = 0;
     const clients = [], writes = [];
     let nextResult = result === undefined ? {kind, models: [{id: 'a', label: 'a'}, {id: 'b', label: 'b'}],
@@ -24,13 +27,16 @@ export function prefsFixture({kind = 'ollama', values = {}, result} = {}) {
             'EntryRow', 'PasswordEntryRow', 'ExpanderRow', 'SpinRow', 'MessageDialog'].map(name => [name, Widget])
             .concat([['ResponseAppearance', {SUGGESTED: 1}]])),
         Gtk: {Align: {CENTER: 1}, Button: Widget, Image: Widget, EventControllerKey: Widget, Adjustment: Widget,
+            Orientation: {HORIZONTAL: 0}, Scale: {new_with_range: () => Object.assign(new Widget(), {
+                set_size_request() {}, set_valign() {}, set_digits() {}, set_draw_value() {},
+            })},
             StringList: {new: names => names}, PropertyExpression: {new: () => ({})}},
         Gdk: {},
         GLib: {PRIORITY_DEFAULT: 0, SOURCE_REMOVE: false,
             timeout_add: (_p, _ms, callback) => {timers.set(++timer, callback); return timer;},
             source_remove: id => timers.delete(id)},
         ExtensionPreferences: class {getSettings() {return config;}}, ModelBackend: Backend,
-        modelChoices, modelIdleSeconds, migrateModelIdleTime,
+        modelChoices, modelIdleSeconds, migrateModelIdleTime, migrateIndependentChunkLimits,
     });
     const window = new Widget(); new Preferences().fillPreferencesWindow(window);
     return {window, config, clients, writes, timers,

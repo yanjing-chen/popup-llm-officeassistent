@@ -4,8 +4,12 @@ cd -- "$(dirname -- "${BASH_SOURCE[0]}")"
 EXT_UUID='popup-llm-officeassistent@yanjing_chen@qq.com'
 sha256sum --check --quiet CHECKSUMS.sha256
 python3 scripts/release_tools.py checksums --check
-glib-compile-schemas --strict --dry-run "$EXT_UUID/schemas"
-bash -n install.sh verify.sh diagnose-selection.sh diagnose-ocr.sh "$EXT_UUID/diagnose-ocr.sh" scripts/publish_from_6800h.sh
+if command -v glib-compile-schemas >/dev/null 2>&1; then
+    glib-compile-schemas --strict --dry-run "$EXT_UUID/schemas"
+else
+    echo '无 glib-compile-schemas：打包时将严格核对已验证 schema 的 SHA-256。'
+fi
+bash -n install.sh verify.sh diagnose-selection.sh diagnose-ocr.sh diagnose-translation.sh "$EXT_UUID/diagnose-ocr.sh" "$EXT_UUID/diagnose-translation.sh" scripts/publish_from_6800h.sh
 if command -v node >/dev/null 2>&1; then
     for source_file in "$EXT_UUID"/*.js; do
         node --input-type=module --check < "$source_file"

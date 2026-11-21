@@ -10,7 +10,7 @@ for (const action of ['translate', 'explain', 'polish', 'mail', 'qa', 'custom'])
         assert.equal(f.requests[0].message.payload.model, 'old-model');
         assert.equal(f.requests[0].message.payload.messages[0].role, 'system');
         assert.ok(!('ttl' in f.requests[0].message.payload));
-        f.reply(0); assert.equal(f.extension._resultLabel.text, action === 'qa' ? '答：answer' : 'answer');
+        f.reply(0); await settle(); assert.equal(f.extension._resultLabel.text, action === 'qa' ? '答：answer' : 'answer');
         assert.deepEqual(f.finishes, ['old-model']);
     });
 }
@@ -46,6 +46,7 @@ test('a stale callback cannot overwrite a later answer', async () => {
     const f = fixture(); await f.extension._callLLMAPI('one', 'translate');
     await f.extension._callLLMAPI('two', 'translate');
     f.reply(1, 'new'); f.reply(0, 'old');
+    await settle();
     assert.equal(f.extension._resultLabel.text, 'new');
     assert.deepEqual(f.finishes, ['old-model', 'old-model']);
 });
